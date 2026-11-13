@@ -9,7 +9,10 @@ Built with Three.js + TypeScript + Vite.
 npm install
 npm run dev        # http://localhost:5173
 npm run typecheck
+npm run deploy     # build + rsync to the droplet (ssh host "jk")
 ```
+
+Play it at https://druid-grove.brackcarmony.com.
 
 ## Controls
 
