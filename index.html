@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Druid Grove</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+      <div id="pollen-box">
+        <div id="pollen"><span class="ico">✿</span><span id="pollen-n">0</span></div>
+        <div id="mult">pollen ×1.0</div>
+      </div>
+
+      <div id="glade-box">
+        <div id="glade-name">Heartseed Glade</div>
+        <div id="glade-meta"><span id="glade-soil">Dirt</span> · <span id="glade-pct">0%</span></div>
+        <div class="bar"><div id="glade-bar"></div><div class="bar-mark"></div></div>
+      </div>
+
+      <div id="crosshair"></div>
+      <div id="hint"></div>
+      <div id="toast"></div>
+      <div id="hotbar"></div>
+      <div id="keys">
+        <b>WASD</b> move · <b>Shift</b> run · <b>Space</b> hop · <b>Hold click</b> plant · <b>Scroll</b> zoom · <b>1-3</b> tools · <b>E</b> shop
+      </div>
+    </div>
+
+    <div id="shop" class="hidden">
+      <div class="shop-inner">
+        <div class="shop-head">
+          <h2>The Nymph's Satchel</h2>
+          <div><span class="ico">✿</span> <span id="shop-pollen">0</span></div>
+        </div>
+        <h3>Tools</h3>
+        <div id="shop-tools" class="shop-grid"></div>
+        <h3>Upgrades</h3>
+        <div id="shop-upgrades" class="shop-grid"></div>
+        <div class="shop-foot">
+          <button id="reset">Reset save</button>
+          <span>Press <b>E</b> or <b>Esc</b> to close</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="start">
+      <div class="start-inner">
+        <h1>Druid Grove</h1>
+        <p>The moon broke and the world went grey. You are the last wood nymph,<br />and you have a pocketful of seeds and a pair of tweezers.</p>
+        <button id="play">Begin planting</button>
+        <p class="small">Click to capture the mouse. Esc releases it.</p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
