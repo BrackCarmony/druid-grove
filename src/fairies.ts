@@ -43,6 +43,7 @@ export interface Ring {
   label: string;
   exhaustedUntil: number; // no plantable tiles in reach: don't rescan until then
   left: number; // plantable tiles left in reach (refreshed occasionally)
+  locked: number; // bare tiles in reach whose soil isn't unlocked yet
   recount: number;
 }
 
@@ -157,6 +158,7 @@ export class FairyRings {
       label: `Fairy Ring ${this.rings.length + 1}`,
       exhaustedUntil: 0,
       left: 0,
+      locked: 0,
       recount: 0,
     };
     this.rings.push(ring);
@@ -204,6 +206,21 @@ export class FairyRings {
     }
   }
 
+  /** Take a ring away: its fairies (and whatever seeds they carry) go with it. */
+  remove(r: Ring) {
+    const i = this.rings.indexOf(r);
+    if (i < 0) return;
+    for (const f of r.fairies) this.release(f);
+    this.group.remove(r.obj);
+    this.rings.splice(i, 1);
+    this.rings.forEach((ring, k) => (ring.label = `Fairy Ring ${k + 1}`));
+    this.particles.burst(r.x, this.world.heightAt(r.x, r.z) + 1, r.z, 0xe0b8ff, 60, 1.5, 2);
+  }
+
+  refreshCounts() {
+    for (const r of this.rings) this.countLeft(r);
+  }
+
   nearby(pos: THREE.Vector3): Ring | null {
     for (const r of this.rings) if (Math.hypot(pos.x - r.x, pos.z - r.z) < RING_RANGE) return r;
     return null;
@@ -219,15 +236,22 @@ export class FairyRings {
     const R = this.econ.ringRadius;
     const ci = Math.floor(r.x + HALF);
     const cj = Math.floor(r.z + HALF);
+    const w = this.world;
     let n = 0;
+    let locked = 0;
     for (let j = Math.max(0, cj - R); j <= Math.min(SIZE - 1, cj + R); j++) {
       for (let i = Math.max(0, ci - R); i <= Math.min(SIZE - 1, ci + R); i++) {
         const dx = i - ci;
         const dz = j - cj;
-        if (dx * dx + dz * dz <= R * R && this.plantable(j * SIZE + i)) n++;
+        if (dx * dx + dz * dz > R * R) continue;
+        const t = j * SIZE + i;
+        if (!w.isPlantable(t)) continue;
+        if (this.econ.canWork(w.soil[t] as Soil)) n++;
+        else locked++;
       }
     }
     r.left = n;
+    r.locked = locked;
   }
 
   /** Nearest unclaimed plantable tile to (x, z) that lies within the ring's reach. */

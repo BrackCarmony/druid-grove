@@ -13,20 +13,21 @@ npm run typecheck
 
 ## Controls
 
-| Input                | Action                                            |
-| -------------------- | ------------------------------------------------- |
-| Click                | Capture the mouse (Esc releases)                  |
-| WASD / Shift / Space | Move / run / hop                                  |
-| Hold left mouse      | Plant on the highlighted tiles                    |
-| Scroll               | Zoom: first person → over the shoulder → overview |
-| 1–3                  | Switch tools                                      |
-| 4–5                  | Ride / dismount a mount                           |
-| B                    | Build a squirrel cache at the cursor              |
-| H                    | Build a beehive at the cursor (needs the Rake)    |
-| R                    | Build a fairy ring at the cursor (costs honey)    |
-| F                    | Toggle mount auto-planting                        |
-| E                    | Shop                                              |
-| M                    | Toggle sound                                      |
+| Input                | Action                                                  |
+| -------------------- | ------------------------------------------------------- |
+| Click                | Capture the mouse (Esc releases)                        |
+| WASD / Shift / Space | Move / run / hop                                        |
+| Hold left mouse      | Plant on the highlighted tiles                          |
+| Scroll               | Zoom: first person → over the shoulder → overview       |
+| 1–3                  | Switch tools                                            |
+| 4–5                  | Ride / dismount a mount                                 |
+| B                    | Build a squirrel cache at the cursor                    |
+| H                    | Build a beehive at the cursor (needs the Rake)          |
+| R                    | Build a fairy ring at the cursor (costs honey)          |
+| G                    | List your fairy rings (tiles left, remove for a refund) |
+| F                    | Toggle mount auto-planting                              |
+| E                    | Shop                                                    |
+| M                    | Toggle sound                                            |
 
 ## How it plays (prototype)
 
@@ -39,7 +40,7 @@ npm run typecheck
 - **Mounts** (after the rake): the Mossback Tortoise and the Bramble Stag auto-plant a wide circle around themselves and carry their own large seed supply (Saddlebags upgrade).
 - Nimble Fingers also boosts mounts (+10% per level): a maxed Bramble Stag plants clay at a full gallop; stone still needs a slower pace.
 - **Beehives** (H) make honey from the bloomed tiles within 22m. **Bears** walk from the Bear Den (next to the start) to the fullest hive and carry the honey home. The first bear comes with the first hive; hire more in the shop.
-- **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach.
+- **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach. **G** lists every ring with its tiles left; removing one refunds its honey so it can be rebuilt where there's work.
 - Rocks, stumps, heart trees and buildings have collision.
 - Bloom 90% of a glade to **restore** it: the rest flourishes outward from the heart, a heart tree grows, the creeks fill with water, and you get bonus pollen plus a permanent pollen multiplier.
 - Progress autosaves to localStorage every 10 seconds. The shop has a reset button.

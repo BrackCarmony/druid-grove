@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { Apiary } from './apiary';
 import { Colliders } from './colliders';
-import { Economy, HIVE, MOUNTS, TOOLS, UPGRADES, UpgradeGroup } from './economy';
-import { FairyRings } from './fairies';
+import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { FairyRings, Ring } from './fairies';
 import { Chimes, Particles } from './fx';
 import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
@@ -328,12 +328,14 @@ function buildRing() {
     p[0],
     p[1],
     0xe0b8ff,
-    `Fairy ring built! Its fairies plant everything within ${econ.ringRadius}m. Next ring ⬢ ${fmt(econ.ringCost)}.`,
+    `Fairy ring built! Its fairies plant everything within ${econ.ringRadius}m (G lists your rings). Next ring ⬢ ${fmt(econ.ringCost)}.`,
   );
 }
 
 // ---------- input ----------
-let shopOpen = false;
+/** Any full-screen menu is open (the game pauses input while one is). */
+let menuOpen = false;
+let menuKind: 'shop' | 'rings' | null = null;
 let started = false;
 let mouseDown = false;
 let resetArmed = false;
@@ -343,15 +345,87 @@ function lock() {
   canvas.requestPointerLock?.();
 }
 
-function openShop(open: boolean) {
-  shopOpen = open;
-  $('shop').classList.toggle('hidden', !open);
-  if (open) {
-    renderShop();
-    document.exitPointerLock?.();
-  } else {
-    lock();
+function openMenu(kind: 'shop' | 'rings' | null) {
+  menuKind = kind;
+  menuOpen = kind !== null;
+  $('shop').classList.toggle('hidden', kind !== 'shop');
+  $('rings').classList.toggle('hidden', kind !== 'rings');
+  if (kind === 'shop') renderShop();
+  if (kind === 'rings') renderRings();
+  if (kind) document.exitPointerLock?.();
+  else lock();
+}
+
+// ---------- fairy ring list ----------
+interface RingRow {
+  ring: Ring;
+  info: HTMLElement;
+}
+let ringRows: RingRow[] = [];
+
+function ringStatus(r: Ring) {
+  const dist = Math.round(Math.hypot(r.x - player.pos.x, r.z - player.pos.z));
+  const where = dist < 4 ? 'right here' : `${dist}m away`;
+  let work: string;
+  if (r.left > 0) work = `<b>${fmt(r.left)}</b> tiles left to plant`;
+  else if (r.locked > 0) work = `<span class="warn">Stuck: ${fmt(r.locked)} tiles need a soil upgrade</span>`;
+  else work = '<span class="ok">Finished, nothing left in reach</span>';
+  return `${r.fairies.length} fairies · ${where}<br>${work}`;
+}
+
+function renderRings() {
+  fairies.refreshCounts();
+  const list = $('rings-list');
+  list.innerHTML = '';
+  ringRows = [];
+  $('rings-sub').textContent = fairies.rings.length
+    ? `${fairies.rings.length} ring${fairies.rings.length === 1 ? '' : 's'} · each tends ${econ.ringRadius}m around itself`
+    : '';
+  if (!fairies.rings.length) {
+    list.innerHTML = '<p class="dim">No fairy rings yet. Press <b>R</b> to build one (costs honey).</p>';
+    return;
   }
+  // Finished rings first: those are the ones worth moving.
+  const rings = [...fairies.rings].sort((a, b) => a.left - b.left);
+  for (const r of rings) {
+    const row = document.createElement('div');
+    row.className = 'ring-row';
+    const info = document.createElement('div');
+    info.className = 'ring-info';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = r.label;
+    const status = document.createElement('div');
+    status.className = 'desc';
+    status.innerHTML = ringStatus(r);
+    info.append(name, status);
+    const btn = document.createElement('button');
+    btn.className = 'remove';
+    // Removing the newest-priced ring frees that price slot, so refund exactly that.
+    const refund = Math.ceil(RING.baseCost * Math.pow(RING.growth, econ.ringsBuilt - 1));
+    btn.textContent = `Remove (+⬢ ${fmt(refund)})`;
+    let armed = false;
+    btn.onclick = () => {
+      if (!armed) {
+        armed = true;
+        btn.textContent = 'Click again to remove';
+        return;
+      }
+      fairies.remove(r);
+      econ.ringsBuilt--;
+      econ.honey += refund;
+      chimes.purchase();
+      toast(`${r.label} removed. ⬢ ${fmt(refund)} returned. Build it somewhere new with R.`);
+      renderRings();
+    };
+    row.append(info, btn);
+    list.appendChild(row);
+    ringRows.push({ ring: r, info: status });
+  }
+}
+
+function updateRings() {
+  for (const row of ringRows) row.info.innerHTML = ringStatus(row.ring);
 }
 
 function saveNow() {
@@ -372,7 +446,7 @@ $('play').onclick = () => {
   if (!loaded) toast('Hold the mouse to press a seed into the dirt.');
 };
 canvas.addEventListener('click', () => {
-  if (started && !shopOpen && document.pointerLockElement !== canvas) lock();
+  if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
 });
 $('reset').onclick = () => {
   if (resetArmed) {
@@ -399,8 +473,10 @@ addEventListener('wheel', (e) => {
 });
 addEventListener('keydown', (e) => {
   if (!started || e.repeat) return;
-  if (e.code === 'KeyE' || (e.code === 'Escape' && shopOpen)) openShop(!shopOpen);
-  if (shopOpen) return;
+  if (e.code === 'Escape' && menuOpen) return openMenu(null);
+  if (e.code === 'KeyE') return openMenu(menuKind === 'shop' ? null : 'shop');
+  if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
+  if (menuOpen) return;
   if (e.code.startsWith('Digit')) selectSlot(Number(e.code.slice(5)) - 1);
   if (e.code === 'KeyB') buildCache();
   if (e.code === 'KeyH') buildHive();
@@ -436,7 +512,7 @@ function frame() {
   const time = clock.elapsedTime;
   sharedUniforms.uTime.value = time;
 
-  if (!shopOpen) player.update(dt, time);
+  if (!menuOpen) player.update(dt, time);
   // Thin the haze as the camera pulls back so the whole land is visible.
   const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
   sharedUniforms.uFogDensity.value = fogD;
@@ -449,12 +525,12 @@ function frame() {
     // Show the mount's planting footprint instead of the hand cursor.
     cursorUniforms.uCursor.value.set(player.pos.x, player.pos.z, mount.radius);
     cursorUniforms.uCursorState.value = !econ.autoPlant ? 0 : econ.activeSeeds >= 1 ? 1 : 2;
-    if (econ.autoPlant && !shopOpen) garden.workMount(dt, player.pos.x, player.pos.z, mount);
+    if (econ.autoPlant && !menuOpen) garden.workMount(dt, player.pos.x, player.pos.z, mount);
   } else {
     const st = garden.aimStatus;
     cursorUniforms.uCursorState.value = st === 'none' ? 0 : st === 'ok' || st === 'done' ? 1 : 2;
     cursorUniforms.uCursor.value.set(garden.aim.x, garden.aim.z, econ.tool.radius);
-    if (mouseDown && !shopOpen && garden.work(dt)) player.workAnim = 1;
+    if (mouseDown && !menuOpen && garden.work(dt)) player.workAnim = 1;
   }
 
   // Seed refills
@@ -533,7 +609,8 @@ function frame() {
     } else if (mouseDown || ['locked', 'creek', 'empty'].includes(garden.aimStatus)) hint = garden.aimHint();
     $('hint').textContent = hint;
     $('crosshair').style.display = !mount && (player.firstPerson || player.zoom < 12) ? 'block' : 'none';
-    if (shopOpen) {
+    if (menuKind === 'rings') updateRings();
+    if (menuOpen) {
       $('shop-pollen').textContent = fmt(econ.pollen);
       $('shop-honey').textContent = fmt(econ.honey);
     }

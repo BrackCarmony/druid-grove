@@ -208,6 +208,7 @@ body {
 }
 
 #shop,
+#rings,
 #start {
   position: fixed;
   inset: 0;
@@ -285,6 +286,38 @@ button:disabled {
   align-items: center;
   font-size: 13px;
   color: var(--ink-dim);
+}
+.ring-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.ring-info {
+  flex: 1;
+  min-width: 0;
+}
+.ring-row .name {
+  font-weight: 600;
+}
+.ring-row .desc {
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+.ring-row .ok {
+  color: var(--leaf);
+}
+.ring-row .warn {
+  color: #ffb36b;
+}
+button.remove {
+  background: transparent;
+  color: var(--bad);
+  border: 1px solid var(--bad);
+  white-space: nowrap;
 }
 #reset {
   background: transparent;
