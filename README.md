@@ -39,7 +39,7 @@ npm run typecheck
 - **Squirrel caches** (B) are seed stations you place out in the world. Their squirrels run back and forth to the Hollow, so a far-off cache refills more slowly. The Family, Cheeks and Paws upgrades scale them up.
 - **Mounts** (after the rake): the Mossback Tortoise and the Bramble Stag auto-plant a wide circle around themselves and carry their own large seed supply (Saddlebags upgrade).
 - Nimble Fingers also boosts mounts (+10% per level): a maxed Bramble Stag plants clay at a full gallop; stone still needs a slower pace.
-- **Beehives** (H) make honey from the bloomed tiles within 22m. **Bears** walk from the Bear Den (next to the start) to the fullest hive and carry the honey home. The first bear comes with the first hive; hire more in the shop.
+- **Beehives** (H) make honey from the bloomed tiles within 22m. Only one hive per glade, so they spread out across the land. **Bears** walk from the Bear Den (next to the start) to the fullest hive and carry the honey home. The first bear comes with the first hive; hire more in the shop.
 - **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach. **G** lists every ring with its tiles left; removing one refunds its honey so it can be rebuilt where there's work.
 - Rocks, stumps, heart trees and buildings have collision.
 - Bloom 90% of a glade to **restore** it: the rest flourishes outward from the heart, a heart tree grows, the creeks fill with water, and you get bonus pollen plus a permanent pollen multiplier.

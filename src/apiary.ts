@@ -167,6 +167,7 @@ export interface Hive {
   x: number;
   z: number;
   honey: number;
+  glade: number;
   reserved: number; // honey a bear is already walking over to collect
   flowers: number; // bloomed tiles in foraging range
   recount: number;
@@ -233,6 +234,19 @@ export class Apiary {
     this.group.add(this.beeMesh);
   }
 
+  /** One hive per glade, so hives get spread across the land instead of crowding the den. */
+  hiveBlockedAt(x: number, z: number): string | null {
+    const g = this.gladeAt(x, z);
+    if (g < 0) return null;
+    const other = this.hives.find((h) => h.glade === g);
+    return other ? `${this.world.glades[g].name} already has a beehive` : null;
+  }
+
+  private gladeAt(x: number, z: number) {
+    const t = this.world.tileAt(x, z);
+    return t < 0 ? -1 : this.world.gladeOf[t];
+  }
+
   canBuildAt(x: number, z: number): string | null {
     if (Math.hypot(x - this.den.x, z - this.den.z) < MIN_SPACING + 2) return 'Too close to the Bear Den';
     for (const h of this.hives) {
@@ -251,11 +265,12 @@ export class Apiary {
       x,
       z,
       honey,
+      glade: this.gladeAt(x, z),
       reserved: 0,
       flowers: 0,
       recount: 0,
       obj,
-      label: `Beehive ${this.hives.length + 1}`,
+      label: `Beehive · ${this.world.glades[this.gladeAt(x, z)]?.name ?? 'the wilds'}`,
     };
     this.countFlowers(hive);
     this.hives.push(hive);

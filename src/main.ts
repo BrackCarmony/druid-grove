@@ -304,11 +304,17 @@ function buildCache() {
 function buildHive() {
   if (!econ.has('rake')) return toast('Beehives need the Rake first.');
   const p = placement();
-  if (!p || !afford(econ.hiveCost, econ.pollen, 'A beehive ✿')) return;
+  if (!p) return;
+  const taken = apiary.hiveBlockedAt(p[0], p[1]);
+  if (taken) {
+    chimes.deny();
+    return toast(`${taken}. Only one hive per glade.`);
+  }
+  if (!afford(econ.hiveCost, econ.pollen, 'A beehive ✿')) return;
   econ.pollen -= econ.hiveCost;
   econ.hivesBuilt++;
   apiary.build(p[0], p[1]);
-  let msg = `Beehive built! Bees forage blooms within ${HIVE.radius}m. Next hive ✿ ${fmt(econ.hiveCost)}.`;
+  let msg = `Beehive built! Bees forage blooms within ${HIVE.radius}m. One hive per glade. Next hive ✿ ${fmt(econ.hiveCost)}.`;
   if (econ.bears === 0) {
     econ.bears = 1;
     apiary.syncBears();
