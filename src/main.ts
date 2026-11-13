@@ -78,6 +78,7 @@ scene.add(stations.group);
 
 // ---------- HUD ----------
 let toastTimer = 0;
+let pollenPulse = false;
 function toast(msg: string, big = false) {
   const el = $('toast');
   el.innerHTML = msg; // our own strings; may contain icon markup
@@ -87,11 +88,10 @@ function toast(msg: string, big = false) {
 
 const garden = new Garden(world, econ, flowers, hearts, scenery, particles, chimes, {
   toast,
+  // Pulsing the counter forces a layout, so it's done at most once per HUD tick
+  // rather than once per bloom (thousands per second when glades are restored).
   earned: () => {
-    const el = $('pollen');
-    el.classList.remove('pulse');
-    void el.offsetWidth;
-    el.classList.add('pulse');
+    pollenPulse = true;
   },
 });
 
@@ -911,6 +911,13 @@ function frame() {
   if (hudTimer <= 0) {
     hudTimer = 0.1;
     $('pollen-n').textContent = fmt(econ.pollen);
+    if (pollenPulse) {
+      pollenPulse = false;
+      const el = $('pollen');
+      el.classList.remove('pulse');
+      void el.offsetWidth;
+      el.classList.add('pulse');
+    }
     $('honey').classList.toggle('hidden', !econ.has('hive'));
     $('honey-n').textContent = fmt(econ.honey);
     $('mult').textContent = `pollen ×${econ.multiplier.toFixed(1)}`;

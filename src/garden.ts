@@ -34,6 +34,13 @@ export class Garden {
   aimSoil: Soil = Soil.Dirt;
   private tmp = new THREE.Vector3();
   private lastTick = 0;
+  // Tiles waiting their turn in a restored glade's outward bloom, bucketed by the
+  // quarter-second they start growing. Kept out of world.growing so the per-frame
+  // loop only touches tiles that are actually growing (a big batch of restored
+  // glades used to queue tens of thousands of idle tiles there).
+  private pending = new Map<number, number[]>();
+  private nextBucket = -1;
+  private now = 0;
   /** Tiles planted by fairies: they bloom without a chime so automation doesn't drown out the player. */
   private quiet = new Set<number>();
   private econPool: SeedPool;
@@ -193,6 +200,19 @@ export class Garden {
 
   update(dt: number, time: number) {
     const w = this.world;
+    this.now = time;
+    const due = Math.floor(time * 4);
+    if (this.nextBucket < 0) this.nextBucket = due;
+    for (; this.nextBucket <= due; this.nextBucket++) {
+      const list = this.pending.get(this.nextBucket);
+      if (!list) continue;
+      this.pending.delete(this.nextBucket);
+      for (const t of list) {
+        if (w.bloomed[t] || w.growing.has(t)) continue;
+        w.growth[t] = 0;
+        w.growing.add(t);
+      }
+    }
     const rate = dt / this.econ.growTime;
     for (const t of w.growing) {
       w.growth[t] += rate;
@@ -264,8 +284,13 @@ export class Garden {
       const [x, z] = w.tileCenter(t);
       w.setSeeded(t);
       w.work[t] = 1;
-      w.growth[t] = -wdist(hx, hz, x, z) * 0.05 - Math.random() * 0.3;
-      w.growing.add(t);
+      // Bloom spreads outward from the heart: farther tiles start later.
+      const wait = (wdist(hx, hz, x, z) * 0.05 + Math.random() * 0.3) * this.econ.growTime;
+      w.growth[t] = -1; // seeded but not yet sprouting
+      const b = Math.max(this.nextBucket, Math.floor((time + wait) * 4));
+      let list = this.pending.get(b);
+      if (!list) this.pending.set(b, (list = []));
+      list.push(t);
     });
     this.wetNeighbouringCreeks(g);
   }
