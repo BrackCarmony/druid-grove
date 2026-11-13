@@ -8,7 +8,7 @@ import { deleteSlot, lastSlot, setLastSlot, SLOT_COUNT, slotInfo, slotKey } from
 import { planetizeTree, planetUniforms } from './planet';
 import { Waystone, Waystones } from './waystones';
 import { FairyRings, Ring } from './fairies';
-import { Chimes, Particles } from './fx';
+import { Chimes, Particles, Song } from './fx';
 import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
 import { Player } from './player';
@@ -806,7 +806,26 @@ function renderSlots() {
 renderSlots();
 
 // ---------- home screen: settings and credits ----------
-const MUSIC_URL = import.meta.env.BASE_URL + 'music/forest.mp3';
+const music = (f: string) => import.meta.env.BASE_URL + 'music/' + f;
+// Each song plays its loop twice, then the next song starts.
+const SONGS: Song[] = [
+  // "forest" loops seamlessly end to end.
+  { title: 'forest', parts: [{ url: music('forest.mp3') }, { url: music('forest.mp3') }] },
+  // Sylvan Waltz, per the composer's notes: intro, then the main loop at 11.08 s, re-triggered
+  // every 75 s (at 1:26.08) while the previous copy's tail rings out underneath.
+  {
+    title: 'Sylvan Waltz',
+    parts: [
+      { url: music('sylvan-waltz-intro.mp3'), at: 0 },
+      { url: music('sylvan-waltz-main.mp3'), at: 11.08 },
+      { url: music('sylvan-waltz-main.mp3'), at: 86.08 },
+    ],
+  },
+  {
+    title: 'The Outer Forest',
+    parts: [{ url: music('the-outer-forest.mp3') }, { url: music('the-outer-forest.mp3') }],
+  },
+];
 let viewScale = 1;
 onSettings((s) => {
   chimes.setVolumes(s.sfx, s.music);
@@ -817,7 +836,7 @@ onSettings((s) => {
 });
 // Browsers only allow audio after the player interacts, so the music starts on the first click or key.
 const startMusic = () => {
-  void chimes.startMusic(MUSIC_URL);
+  chimes.startMusic(SONGS);
   removeEventListener('pointerdown', startMusic);
   removeEventListener('keydown', startMusic);
 };

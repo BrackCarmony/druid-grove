@@ -91,15 +91,24 @@ const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
 
 const SFX_LEVEL = 0.22; // chimes at 100% effects volume
 const MUSIC_LEVEL = 0.55; // the track at 100% music volume
+const SONG_GAP = 4; // seconds of quiet between songs
 
-/** Sound effects (synthesised chimes) and the looping music track, each with its own volume. */
+/** A song is one or more audio files scheduled against the song's start. */
+export interface Song {
+  title: string;
+  /** `at`: seconds from the song's start; omitted means right after the previous part ends. */
+  parts: { url: string; at?: number }[];
+}
+
+/** Sound effects (synthesised chimes) and the music playlist, each with its own volume. */
 export class Chimes {
   private ctx: AudioContext | null = null;
   private out: GainNode | null = null; // everything; M mutes here
   private master: GainNode | null = null; // sound effects
   private musicGain: GainNode | null = null;
-  private music: AudioBufferSourceNode | null = null;
-  private musicLoading = false;
+  private songs: Song[] = [];
+  private songIndex = 0;
+  private buffers = new Map<string, Promise<AudioBuffer>>();
   private sfxVol = 1;
   private musicVol = 0.5;
   private lastBloom = 0;
@@ -132,7 +141,7 @@ export class Chimes {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.master!.gain.setTargetAtTime(SFX_LEVEL * sfx, t, 0.05);
-    if (this.music) this.musicGain!.gain.setTargetAtTime(MUSIC_LEVEL * music, t, 0.1);
+    if (this.songs.length) this.musicGain!.gain.setTargetAtTime(MUSIC_LEVEL * music, t, 0.1);
   }
 
   setMuted(m: boolean) {
@@ -140,28 +149,68 @@ export class Chimes {
     if (this.ctx) this.out!.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.05);
   }
 
-  /** Start the looping music (call from a user gesture; safe to call repeatedly). */
-  async startMusic(url: string) {
+  /** Start the music playlist (call from a user gesture; safe to call repeatedly). */
+  startMusic(songs: Song[]) {
     const ctx = this.ensure();
     void ctx.resume();
-    if (this.music || this.musicLoading) return;
-    this.musicLoading = true;
+    if (this.songs.length || !songs.length) return;
+    this.songs = songs;
+    this.songIndex = Math.floor(Math.random() * songs.length);
+    // Fade in gently the first time.
+    this.musicGain!.gain.setValueAtTime(0, ctx.currentTime);
+    this.musicGain!.gain.linearRampToValueAtTime(MUSIC_LEVEL * this.musicVol, ctx.currentTime + 4);
+    void this.playNext();
+  }
+
+  private async buffer(url: string) {
+    let p = this.buffers.get(url);
+    if (!p) {
+      const ctx = this.ensure();
+      p = fetch(url)
+        .then((r) => r.arrayBuffer())
+        .then((d) => ctx.decodeAudioData(d));
+      this.buffers.set(url, p);
+      p.catch(() => this.buffers.delete(url)); // let a later attempt retry
+    }
+    return p;
+  }
+
+  /** Schedule every part of the next song on the audio clock, then queue the one after. */
+  private async playNext() {
+    const ctx = this.ensure();
+    const song = this.songs[this.songIndex % this.songs.length];
+    this.songIndex++;
     try {
-      const data = await (await fetch(url)).arrayBuffer();
-      const buf = await ctx.decodeAudioData(data);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.loop = true; // buffer loops are gapless, unlike <audio loop>
-      src.connect(this.musicGain!);
-      src.start();
-      this.music = src;
-      // Fade in gently.
-      this.musicGain!.gain.setValueAtTime(0, ctx.currentTime);
-      this.musicGain!.gain.linearRampToValueAtTime(MUSIC_LEVEL * this.musicVol, ctx.currentTime + 4);
+      const bufs = await Promise.all(song.parts.map((p) => this.buffer(p.url)));
+      // Keep only this song's and the next song's audio decoded.
+      const next = this.songs[this.songIndex % this.songs.length];
+      const keep = new Set([...song.parts, ...next.parts].map((p) => p.url));
+      for (const url of [...this.buffers.keys()]) if (!keep.has(url)) this.buffers.delete(url);
+      for (const p of next.parts) void this.buffer(p.url).catch(() => {});
+
+      const t0 = ctx.currentTime + 0.1;
+      let prevEnd = 0;
+      let last: AudioBufferSourceNode | null = null;
+      let lastEnd = -1;
+      song.parts.forEach((part, i) => {
+        const at = part.at ?? prevEnd; // no time given: straight after the previous part
+        const src = ctx.createBufferSource();
+        src.buffer = bufs[i];
+        src.connect(this.musicGain!);
+        src.start(t0 + at);
+        prevEnd = at + bufs[i].duration;
+        if (prevEnd > lastEnd) {
+          lastEnd = prevEnd;
+          last = src;
+        }
+      });
+      // When the final part (tail included) has rung out, take a breath and play the next song.
+      (last as AudioBufferSourceNode | null)?.addEventListener('ended', () => {
+        setTimeout(() => void this.playNext(), SONG_GAP * 1000);
+      });
     } catch (e) {
-      console.warn('Music failed to load', e);
-    } finally {
-      this.musicLoading = false;
+      console.warn(`Music failed to load: ${song.title}`, e);
+      if (this.songs.length > 1) setTimeout(() => void this.playNext(), 5000);
     }
   }
 

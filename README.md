@@ -108,6 +108,15 @@ on the droplet, which keeps a year of weekly logs. No IP addresses are stored.
   [OpenGameArt](https://opengameart.org/content/forest), licensed
   [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Used unmodified (looped).
   File: `public/music/forest.mp3`.
+- Music: "Sylvan Waltz" (looped version) by Otto Halmén, from
+  [OpenGameArt](https://opengameart.org/content/sylvan-waltz-standard-looped-version), licensed
+  [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). The intro and main loop WAVs were converted
+  to MP3 (`public/music/sylvan-waltz-*.mp3`) and are played per the composer's loop notes.
+- Music: "The Outer Forest" by Zydro, from [OpenGameArt](https://opengameart.org/content/forest-theme),
+  licensed [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Used unmodified (looped).
+  File: `public/music/the-outer-forest.mp3`.
+
+The music plays as a playlist: each song plays its loop twice, then a short pause, then the next.
 - Font: [Fredoka](https://fonts.google.com/specimen/Fredoka), SIL Open Font License 1.1.
 - Engine: [three.js](https://threejs.org), MIT License.
 
