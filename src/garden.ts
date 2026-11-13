@@ -31,6 +31,8 @@ export class Garden {
   aimSoil: Soil = Soil.Dirt;
   private tmp = new THREE.Vector3();
   private lastTick = 0;
+  /** Tiles planted by fairies: they bloom without a chime so automation doesn't drown out the player. */
+  private quiet = new Set<number>();
   private econPool: SeedPool;
 
   constructor(
@@ -172,6 +174,7 @@ export class Garden {
         w.seeded[t] = 1;
         w.growth[t] = 0;
         w.growing.add(t);
+        if (!audible) this.quiet.add(t);
         const [x, z] = w.tileCenter(t);
         this.particles.burst(x, w.heightAt(x, z), z, 0x8a6a45, 4, 0.8, 0.8);
       }
@@ -229,7 +232,7 @@ export class Garden {
     if (!silent) {
       const [x, z] = w.tileCenter(t);
       this.particles.burst(x, w.heightAt(x, z) + 0.3, z, 0xffe27a, 3);
-      this.chimes.bloom();
+      if (!this.quiet.delete(t)) this.chimes.bloom();
     }
     if (!g.completed && g.bloomed >= g.total * COMPLETE_AT) this.completeGlade(g, time);
   }
