@@ -4,5 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 npm run build
-rsync -rlptz --delete --chmod=D755,F644 dist/ jk:/srv/druid-grove/current/
+# (macOS ships openrsync, which has no --chmod, so permissions are fixed up after.)
+rsync -rlptz --delete dist/ jk:/srv/druid-grove/current/
+ssh jk 'cd /srv/druid-grove/current && find . -type d -exec chmod 755 {} + && find . -type f -exec chmod 644 {} +'
 echo "Deployed to https://druid-grove.brackcarmony.com"
