@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Economy, SOILS, ToolId } from './economy';
+import { Economy, MountDef, MountId, SOILS, ToolId } from './economy';
 import { Chimes, Particles } from './fx';
 import { Flowers } from './flowers';
 import { DeadScenery, HeartTrees } from './props';
@@ -9,9 +9,9 @@ import { Glade, HALF, SIZE, Soil, SOIL_NAMES, World } from './world';
 // bloom them into flowers + pollen, and restore whole glades.
 
 export const COMPLETE_AT = 0.9;
-const SAVE_KEY = 'druid-grove-save-v1';
+const SAVE_KEY = 'druid-grove-save-v2';
 
-export type AimStatus = 'none' | 'ok' | 'far' | 'locked' | 'creek' | 'done';
+export type AimStatus = 'none' | 'ok' | 'far' | 'locked' | 'creek' | 'done' | 'empty';
 
 export interface GardenEvents {
   toast(msg: string, big?: boolean): void;
@@ -80,6 +80,7 @@ export class Garden {
     else if (soil === Soil.Creek) this.aimStatus = 'creek';
     else if (!this.econ.canWork(soil)) this.aimStatus = 'locked';
     else if (this.world.seeded[t] && this.econ.tool.radius === 0) this.aimStatus = 'done';
+    else if (this.econ.activeSeeds < 1) this.aimStatus = 'empty';
     else this.aimStatus = 'ok';
   }
 
@@ -108,14 +109,42 @@ export class Garden {
   /** Apply planting effort while the mouse is held. Returns true if anything was worked. */
   work(dt: number) {
     if (this.aimStatus !== 'ok') return false;
+    return this.workTiles(this.tilesUnderCursor(), this.econ.power, dt);
+  }
+
+  /** Mounts plant everything in a circle around themselves, no clicking needed. */
+  workMount(dt: number, x: number, z: number, m: MountDef) {
+    const tiles: number[] = [];
+    const r = m.radius;
+    const ci = Math.floor(x + HALF);
+    const cj = Math.floor(z + HALF);
+    const ri = Math.ceil(r);
+    for (let j = cj - ri; j <= cj + ri; j++) {
+      for (let i = ci - ri; i <= ci + ri; i++) {
+        if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) continue;
+        const t = j * SIZE + i;
+        const [tx, tz] = this.world.tileCenter(t);
+        if (Math.hypot(tx - x, tz - z) <= r) tiles.push(t);
+      }
+    }
+    return this.workTiles(tiles, m.power, dt);
+  }
+
+  private workTiles(tiles: number[], power: number, dt: number) {
     const w = this.world;
     let any = false;
-    for (const t of this.tilesUnderCursor()) {
+    for (const t of tiles) {
       const soil = w.soil[t] as Soil;
       if (!w.isPlantable(t) || !this.econ.canWork(soil)) continue;
-      w.work[t] += (this.econ.power * dt) / SOILS[soil].hardness;
+      // A tile only takes effort while there's a seed to put in it.
+      if (this.econ.activeSeeds < 1) break;
+      w.work[t] += (power * dt) / SOILS[soil].hardness;
       any = true;
       if (w.work[t] >= 1) {
+        if (!this.econ.takeSeed()) {
+          w.work[t] = 0.99;
+          break;
+        }
         w.work[t] = 1;
         w.seeded[t] = 1;
         w.growth[t] = 0;
@@ -241,6 +270,8 @@ export class Garden {
         const u = SOILS[this.aimSoil].unlock;
         return `${SOIL_NAMES[this.aimSoil]} is too hard. Needs ${u === 'worms' ? 'Earthworm Charm' : 'Moss Spores'}.`;
       }
+      case 'empty':
+        return 'Out of seeds. Refill at the Seed Hollow or a squirrel cache.';
       case 'creek':
         return 'A dry creek bed. Restore the glade to bring water back.';
       default:
@@ -250,7 +281,7 @@ export class Garden {
 
   // ---------- save / load ----------
 
-  save(player: { pos: THREE.Vector3; yaw: number }) {
+  save(player: { pos: THREE.Vector3; yaw: number }, extra: unknown) {
     const w = this.world;
     const bytes = new Uint8Array(SIZE * SIZE);
     for (let t = 0; t < SIZE * SIZE; t++) bytes[t] = w.seeded[t] ? 255 : Math.floor(w.work[t] * 200);
@@ -261,6 +292,13 @@ export class Garden {
       lifetime: this.econ.lifetimePollen,
       multiplier: this.econ.multiplier,
       tools: [...this.econ.tools],
+      mounts: [...this.econ.mounts],
+      seeds: this.econ.seeds,
+      mountSeeds: this.econ.mountSeeds,
+      riding: this.econ.riding,
+      autoPlant: this.econ.autoPlant,
+      cachesBuilt: this.econ.cachesBuilt,
+      extra,
       current: this.econ.current,
       levels: this.econ.levels,
       completed: w.glades.filter((g) => g.completed).map((g) => g.id),
@@ -274,14 +312,14 @@ export class Garden {
     }
   }
 
-  load(player: { pos: THREE.Vector3; yaw: number }): boolean {
+  load(player: { pos: THREE.Vector3; yaw: number }): { extra: unknown } | null {
     let raw: string | null = null;
     try {
       raw = localStorage.getItem(SAVE_KEY);
     } catch {
-      return false;
+      return null;
     }
-    if (!raw) return false;
+    if (!raw) return null;
     try {
       const d = JSON.parse(raw);
       const w = this.world;
@@ -291,6 +329,12 @@ export class Garden {
       this.econ.tools = new Set<ToolId>(d.tools);
       this.econ.current = d.current;
       this.econ.levels = d.levels;
+      this.econ.mounts = new Set<MountId>(d.mounts ?? []);
+      this.econ.seeds = d.seeds ?? this.econ.seedCap;
+      this.econ.mountSeeds = d.mountSeeds ?? {};
+      this.econ.riding = d.riding ?? null;
+      this.econ.autoPlant = d.autoPlant ?? true;
+      this.econ.cachesBuilt = d.cachesBuilt ?? 0;
       const bin = atob(d.tiles);
       const completed = new Set<number>(d.completed);
       for (let t = 0; t < SIZE * SIZE; t++) {
@@ -324,10 +368,10 @@ export class Garden {
       player.pos.z = d.pos[1];
       player.pos.y = w.heightAt(d.pos[0], d.pos[1]);
       player.yaw = d.pos[2];
-      return true;
+      return { extra: d.extra };
     } catch (e) {
       console.warn('Could not load save', e);
-      return false;
+      return null;
     }
   }
 

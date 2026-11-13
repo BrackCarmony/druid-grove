@@ -1,13 +1,16 @@
 import * as THREE from 'three';
+import { Colliders } from './colliders';
+import type { MountDef, MountId, ToolId } from './economy';
+import { animateMount, buildMount, MountModel } from './mounts';
 import { HALF, World } from './world';
-import type { ToolId } from './economy';
 
-// The nymph: movement, mouse-look, and a single continuous zoom that runs from
-// first person -> over the shoulder -> a high overview of the whole world.
+// The nymph: movement, mouse-look, riding, and a single continuous zoom that runs
+// from first person -> over the shoulder -> a high overview of the whole world.
 
 const EYE = 1.5;
+const BODY_RADIUS = 0.3;
 export const ZOOM_MIN = 0;
-export const ZOOM_MAX = 150;
+export const ZOOM_MAX = 320;
 
 export class Player {
   pos = new THREE.Vector3(0, 0, 4);
@@ -20,6 +23,10 @@ export class Player {
   keys = new Set<string>();
   model: THREE.Group;
   viewmodel: THREE.Group;
+  mount: MountDef | null = null;
+  private nymph: THREE.Group;
+  private mountHolder = new THREE.Group();
+  private mountModels = new Map<MountId, MountModel>();
   private toolModels: Record<ToolId, THREE.Object3D>;
   private walkPhase = 0;
   workAnim = 0;
@@ -27,9 +34,13 @@ export class Player {
   constructor(
     private world: World,
     private camera: THREE.PerspectiveCamera,
+    private colliders: Colliders,
   ) {
     this.pos.y = world.heightAt(this.pos.x, this.pos.z);
-    this.model = buildNymph();
+    this.model = new THREE.Group();
+    this.nymph = buildNymph();
+    this.model.add(this.nymph, this.mountHolder);
+    this.mountHolder.rotation.y = Math.PI; // mount models face +z
     const vm = buildViewmodels();
     this.viewmodel = vm.group;
     this.toolModels = vm.tools;
@@ -62,7 +73,25 @@ export class Player {
     for (const [k, m] of Object.entries(this.toolModels)) m.visible = k === id;
   }
 
+  ride(def: MountDef | null) {
+    this.mount = def;
+    for (const m of this.mountModels.values()) m.root.visible = false;
+    if (def) {
+      let m = this.mountModels.get(def.id);
+      if (!m) {
+        m = buildMount(def.id);
+        this.mountModels.set(def.id, m);
+        this.mountHolder.add(m.root);
+      }
+      m.root.visible = true;
+      this.nymph.position.y = m.seatY;
+    } else {
+      this.nymph.position.y = 0;
+    }
+  }
+
   update(dt: number, time: number) {
+    const mount = this.mount;
     // --- movement ---
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
@@ -72,21 +101,38 @@ export class Player {
     if (this.keys.has('KeyD')) wish.add(right);
     if (this.keys.has('KeyA')) wish.sub(right);
     const running = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    let speed = mount ? (running ? mount.runSpeed : mount.speed) : running ? 7.5 : 4.2;
     // Move faster when zoomed out so the overview isn't a slog.
-    const speed = (running ? 7.5 : 4.2) * (1 + Math.min(this.zoom, 60) / 30);
+    speed *= 1 + Math.min(this.zoom, 60) / 30;
     if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
-    const accel = this.onGround ? 14 : 4;
+    const accel = this.onGround ? (mount ? 6 : 14) : 4;
     this.vel.x += (wish.x - this.vel.x) * Math.min(1, accel * dt);
     this.vel.z += (wish.z - this.vel.z) * Math.min(1, accel * dt);
     if (this.onGround && this.keys.has('Space')) {
-      this.vel.y = 5.2;
+      this.vel.y = mount ? (mount.id === 'stag' ? 7 : 2.5) : 5.2;
       this.onGround = false;
     }
     this.vel.y -= 14 * dt;
+    const before = this.pos.clone();
     this.pos.addScaledVector(this.vel, dt);
+    this.colliders.resolve(this.pos, mount ? mount.bodyRadius : BODY_RADIUS);
     const lim = HALF - 0.5;
     this.pos.x = THREE.MathUtils.clamp(this.pos.x, -lim, lim);
     this.pos.z = THREE.MathUtils.clamp(this.pos.z, -lim, lim);
+    // Velocity reflects what actually happened, so sliding along rocks feels right.
+    // (Capped at the pre-collision speed so being pushed out of something never flings you.)
+    if (dt > 0) {
+      const sp = Math.hypot(this.vel.x, this.vel.z);
+      let vx = (this.pos.x - before.x) / dt;
+      let vz = (this.pos.z - before.z) / dt;
+      const ns = Math.hypot(vx, vz);
+      if (ns > sp && ns > 0) {
+        vx *= sp / ns;
+        vz *= sp / ns;
+      }
+      this.vel.x = vx;
+      this.vel.z = vz;
+    }
     const ground = this.world.heightAt(this.pos.x, this.pos.z);
     if (this.pos.y <= ground) {
       this.pos.y = ground;
@@ -95,12 +141,13 @@ export class Player {
     }
 
     const moving = Math.hypot(this.vel.x, this.vel.z);
-    this.walkPhase += moving * dt * 2.2;
+    this.walkPhase += moving * dt * (mount ? 1.1 : 2.2);
 
     // --- camera ---
     this.zoom += (this.zoomTarget - this.zoom) * Math.min(1, dt * 8);
-    const head = new THREE.Vector3(this.pos.x, this.pos.y + EYE, this.pos.z);
-    const bob = this.onGround ? Math.sin(this.walkPhase * 2) * 0.04 * Math.min(1, moving / 4) : 0;
+    const eye = mount ? mount.eye : EYE;
+    const head = new THREE.Vector3(this.pos.x, this.pos.y + eye, this.pos.z);
+    const bob = this.onGround ? Math.sin(this.walkPhase * 2) * (mount ? 0.06 : 0.04) * Math.min(1, moving / 4) : 0;
 
     // When zoomed far out, ease the camera into looking down at the land.
     const overview = THREE.MathUtils.smoothstep(this.zoom, 10, 60);
@@ -113,37 +160,44 @@ export class Player {
 
     if (this.firstPerson) {
       this.camera.position.copy(head).y += bob;
+      if (mount) this.camera.position.addScaledVector(fwd, 0.5);
     } else {
       const shoulder = right.clone().multiplyScalar(0.55 * (1 - overview));
       const target = head.clone().add(shoulder);
-      this.camera.position.copy(target).addScaledVector(dir, -this.zoom);
+      const dist = this.zoom + (mount ? 2 : 0);
+      this.camera.position.copy(target).addScaledVector(dir, -dist);
       const minY = this.world.heightAt(this.camera.position.x, this.camera.position.z) + 0.4;
       if (this.camera.position.y < minY) this.camera.position.y = minY;
     }
     this.camera.lookAt(this.camera.position.clone().add(dir));
 
-    // --- nymph model ---
-    this.model.visible = !this.firstPerson;
+    // --- models ---
+    this.model.visible = !this.firstPerson || !!mount;
+    this.nymph.visible = !this.firstPerson;
     this.model.position.copy(this.pos);
     if (moving > 0.3) {
       const targetYaw = Math.atan2(-this.vel.x, -this.vel.z);
       let d = targetYaw - this.model.rotation.y;
       d = Math.atan2(Math.sin(d), Math.cos(d));
-      this.model.rotation.y += d * Math.min(1, dt * 10);
+      this.model.rotation.y += d * Math.min(1, dt * (mount ? 5 : 10));
     }
-    const hop = Math.abs(Math.sin(this.walkPhase * 2)) * 0.08 * Math.min(1, moving / 4);
-    this.model.children[0].position.y = hop + Math.sin(time * 2) * 0.02;
+    if (mount) {
+      const m = this.mountModels.get(mount.id)!;
+      animateMount(m, this.walkPhase, moving, time);
+      this.nymph.children[0].position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.05;
+      // In first person on a mount, only show the head/antlers ahead of you.
+      m.root.visible = true;
+    } else {
+      const hop = Math.abs(Math.sin(this.walkPhase * 2)) * 0.08 * Math.min(1, moving / 4);
+      this.nymph.children[0].position.y = hop + Math.sin(time * 2) * 0.02;
+    }
 
     // --- first-person tool ---
-    this.viewmodel.visible = this.firstPerson;
+    this.viewmodel.visible = this.firstPerson && !mount;
     this.workAnim = Math.max(0, this.workAnim - dt * 3);
     const w = Math.sin(this.workAnim * Math.PI * 4) * 0.05 * this.workAnim;
     this.viewmodel.position.set(0.32, -0.3 + bob * 0.5 + w, -0.55);
     this.viewmodel.rotation.x = -w * 3;
-  }
-
-  forward2(): THREE.Vector3 {
-    return new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
   }
 }
 

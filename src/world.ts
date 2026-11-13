@@ -4,7 +4,7 @@ import { fbm, mulberry32, valueNoise } from './noise';
 // World layout: a SIZE x SIZE grid of 1m tiles centred on the origin.
 // The land is split into irregular "glades" separated by dry creek beds.
 
-export const SIZE = 160;
+export const SIZE = 384;
 export const HALF = SIZE / 2;
 
 export enum Soil {
@@ -98,7 +98,7 @@ export class World {
   // ---------- generation ----------
 
   private generateGlades(rng: () => number) {
-    const cells = 5;
+    const cells = Math.round(SIZE / 32);
     const cellSize = SIZE / cells;
     const seeds: { x: number; z: number }[] = [];
     for (let cz = 0; cz < cells; cz++) {
@@ -207,20 +207,20 @@ export class World {
       g.total++;
     }
 
+    // A seed swallowed by its neighbours' warped borders owns no land; treat it as done.
+    for (const g of this.glades) if (g.total === 0) g.completed = true;
+
     // Heart tile: the plantable tile of each glade nearest its seed and far from creeks.
-    for (const g of this.glades) {
-      let bt = -1;
-      let bd = Infinity;
-      for (let t = 0; t < SIZE * SIZE; t++) {
-        if (this.gladeOf[t] !== g.id || this.soil[t] === Soil.Creek) continue;
-        const [x, z] = this.tileCenter(t);
-        const d = Math.hypot(x - g.seedX, z - g.seedZ) - Math.min(this.creekDist[t], 6) * 2;
-        if (d < bd) {
-          bd = d;
-          bt = t;
-        }
+    const bestScore = new Float32Array(this.glades.length).fill(Infinity);
+    for (let t = 0; t < SIZE * SIZE; t++) {
+      if (this.soil[t] === Soil.Creek) continue;
+      const g = this.glades[this.gladeOf[t]];
+      const [x, z] = this.tileCenter(t);
+      const d = Math.hypot(x - g.seedX, z - g.seedZ) - Math.min(this.creekDist[t], 6) * 2;
+      if (d < bestScore[g.id]) {
+        bestScore[g.id] = d;
+        g.heartTile = t;
       }
-      g.heartTile = bt;
     }
   }
 

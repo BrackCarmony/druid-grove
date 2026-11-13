@@ -300,3 +300,55 @@ button:disabled {
   padding: 12px 28px;
   margin: 8px 0;
 }
+
+.dim {
+  color: var(--ink-dim);
+}
+.small {
+  font-size: 13px;
+}
+#seeds {
+  margin-top: 6px;
+  font-size: 18px;
+  font-weight: 500;
+}
+.seed-ico {
+  color: #c98a4b;
+}
+.seedbar {
+  height: 5px;
+  margin-top: 4px;
+}
+#seeds-bar {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #c98a4b, #f0c27a);
+}
+#seeds.low {
+  color: var(--bad);
+  animation: blink 1s infinite;
+}
+@keyframes blink {
+  50% {
+    opacity: 0.55;
+  }
+}
+#mount-seeds {
+  font-size: 13px;
+  color: var(--ink-dim);
+  margin-top: 4px;
+}
+#station {
+  position: absolute;
+  left: 50%;
+  bottom: 120px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  padding: 6px 14px;
+  border-radius: 10px;
+  font-size: 15px;
+  backdrop-filter: blur(6px);
+}
+#station:empty {
+  display: none;
+}

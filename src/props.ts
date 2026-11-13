@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Circle, Colliders } from './colliders';
 import { mulberry32 } from './noise';
 import { Glade, Soil, SIZE, World } from './world';
 
@@ -11,7 +12,12 @@ export class DeadScenery {
   private stumpAt = new Map<number, number>(); // tile -> instance
   private zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
-  constructor(world: World) {
+  private stumpCollider = new Map<number, Circle>();
+
+  constructor(
+    world: World,
+    private colliders: Colliders,
+  ) {
     this.build(world);
   }
 
@@ -22,6 +28,9 @@ export class DeadScenery {
     this.stumps.setMatrixAt(i, this.zero);
     this.stumps.instanceMatrix.needsUpdate = true;
     this.stumpAt.delete(t);
+    const c = this.stumpCollider.get(t);
+    if (c) this.colliders.remove(c);
+    this.stumpCollider.delete(t);
   }
 
   private build(world: World) {
@@ -30,8 +39,16 @@ export class DeadScenery {
     const stumpGeo = new THREE.CylinderGeometry(0.18, 0.28, 0.7, 6);
     stumpGeo.translate(0, 0.3, 0);
     const rockGeo = new THREE.DodecahedronGeometry(0.6, 0);
-    const stumps = new THREE.InstancedMesh(stumpGeo, new THREE.MeshLambertMaterial({ color: 0x4a3a30 }), 500);
-    const rocks = new THREE.InstancedMesh(rockGeo, new THREE.MeshLambertMaterial({ color: 0x77727a }), 900);
+    const stumps = new THREE.InstancedMesh(
+      stumpGeo,
+      new THREE.MeshLambertMaterial({ color: 0x4a3a30 }),
+      Math.ceil(SIZE * SIZE * 0.008),
+    );
+    const rocks = new THREE.InstancedMesh(
+      rockGeo,
+      new THREE.MeshLambertMaterial({ color: 0x77727a }),
+      Math.ceil(SIZE * SIZE * 0.03),
+    );
     let ns = 0;
     let nr = 0;
     const m = new THREE.Matrix4();
@@ -44,7 +61,7 @@ export class DeadScenery {
       if (soil === Soil.Creek) continue;
       const r = rng();
       const [x, z] = world.tileCenter(t);
-      if (Math.hypot(x, z) < 6) continue; // keep spawn clear
+      if (Math.hypot(x, z) < 13) continue; // keep spawn + Seed Hollow clear
       const ox = x + (rng() - 0.5) * 0.6;
       const oz = z + (rng() - 0.5) * 0.6;
       const y = world.heightAt(ox, oz);
@@ -56,6 +73,7 @@ export class DeadScenery {
         s.set(sc, sc * (0.5 + rng() * 0.4), sc);
         p.set(ox, y + sc * 0.1, oz);
         rocks.setMatrixAt(nr++, m.compose(p, q, s));
+        if (sc > 0.45) this.colliders.add(ox, oz, sc * 0.5);
       } else if (r > 0.993 && soil !== Soil.Stone && ns < stumps.count) {
         e.set((rng() - 0.5) * 0.3, rng() * 6, (rng() - 0.5) * 0.3);
         q.setFromEuler(e);
@@ -63,6 +81,7 @@ export class DeadScenery {
         s.set(sc, sc * (0.6 + rng() * 1.6), sc);
         p.set(ox, y - 0.05, oz);
         this.stumpAt.set(t, ns);
+        this.stumpCollider.set(t, this.colliders.add(ox, oz, 0.22 * sc));
         stumps.setMatrixAt(ns++, m.compose(p, q, s));
       }
     }
@@ -86,8 +105,12 @@ export class HeartTrees {
     side: THREE.DoubleSide,
   });
 
-  constructor(private world: World) {
+  constructor(
+    private world: World,
+    private colliders: Colliders,
+  ) {
     for (const g of world.glades) {
+      if (g.heartTile < 0) continue;
       const [x, z] = world.tileCenter(g.heartTile);
       const y = world.heightAt(x, z);
       const seed = new THREE.Group();
@@ -103,6 +126,7 @@ export class HeartTrees {
   }
 
   complete(g: Glade, time: number, instant = false) {
+    if (g.heartTile < 0) return;
     const seed = this.seeds.get(g.id);
     if (seed) {
       this.group.remove(seed);
@@ -113,6 +137,7 @@ export class HeartTrees {
     tree.position.set(x, this.world.heightAt(x, z) - 0.2, z);
     tree.scale.setScalar(instant ? 1 : 0.01);
     this.group.add(tree);
+    this.colliders.add(tree.position.x, tree.position.z, 1.0);
     this.trees.set(g.id, { obj: tree, born: instant ? -100 : time });
   }
 
