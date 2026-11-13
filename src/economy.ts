@@ -328,6 +328,8 @@ export const HIVE = { radius: 22, perFlower: 0.004, cap: 120, baseCost: 1200, gr
 export const BEAR = { carry: 30, speed: 4.5, baseCost: 600, growth: 1.45 };
 export const FAIRY = { perRing: 3, carry: 40, speed: 9, radius: 36, power: 1.5, plantRadius: 1.1 };
 export const RING = { baseCost: 60, growth: 1.7 };
+/** Ringless fairies that roam the whole planet: faster, carry more, and cost a lot of honey. */
+export const WAYFARER = { baseCost: 1500, growth: 1.6, speedMul: 1.7, carryMul: 2 };
 export const DEN = { baseCost: 5000, growth: 1.8 };
 export const WAYSTONE = { baseCost: 1500, growth: 1.5 };
 
@@ -361,6 +363,7 @@ export class Economy {
   ringsBuilt = 0;
   densBuilt = 0; // extra dens beyond the one at home
   stonesBuilt = 0; // waystones beyond the one at home
+  wayfarers = 0;
 
   level(id: string) {
     return this.levels[id] ?? 0;
@@ -494,6 +497,9 @@ export class Economy {
   /** The first bear comes free with the first hive, and one more with every new den. */
   get bearCost() {
     return Math.ceil(BEAR.baseCost * Math.pow(BEAR.growth, Math.max(0, this.bears - 1 - this.densBuilt)));
+  }
+  get wayfarerCost() {
+    return Math.ceil(WAYFARER.baseCost * Math.pow(WAYFARER.growth, this.wayfarers));
   }
   get denCost() {
     return Math.ceil(DEN.baseCost * Math.pow(DEN.growth, this.densBuilt));

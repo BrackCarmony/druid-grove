@@ -31,6 +31,7 @@ npm run typecheck
 ## How it plays (prototype)
 
 - The land is a **planet**: a 1024×1024 grid of 1m tiles (~1,000 glades) that wraps around in both directions, drawn curving away below the horizon. Walk far enough any way and you come home. Glades are separated by dry creek beds.
+- The top box shows the current glade and the **planet's overall restoration** (% of plantable land in bloom, glades restored).
 - The **compass** at the top shows your heading, home (⌂ with distance), the nearest waystones (◆) and outlying bear dens (●).
 - Soil gets harder the further you go from home: **dirt** nearby, then **clay** (needs the Earthworm Charm), then **stone** (needs Moss Spores) covering the far side of the planet.
 - Holding the mouse works the soil. Then the seed sprouts and blooms, and each bloom earns **pollen**.
@@ -41,7 +42,7 @@ npm run typecheck
 - Nimble Fingers also boosts mounts (+10% per level): a maxed Bramble Stag plants clay at a full gallop; stone still needs a slower pace.
 - **Beehives** (H) make honey from the bloomed tiles within 22m. Only one hive per glade, so they spread out across the land. **Bears** walk from their Bear Den to a full hive and carry the honey back. There's a den at home, and more can be built (40m apart), each arriving with a bear. The first bear comes with the first hive; hired bears move into the den with the most hives per bear.
 - **Waystones** (from the B menu) are standing-stone arches and your outposts: stand in one and press T to travel to any other, and they're bottomless seed hubs like the Seed Hollow. Squirrels run to the nearest hub (Hollow or waystone), and fairies restock at hubs too. There's one at home.
-- **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach. **G** lists every ring with its tiles left; removing one refunds its honey so it can be rebuilt where there's work.
+- **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach. **Wayfarer fairies** (honey, expensive) have no ring and no range: they roam the whole planet hunting for bare ground that no ring covers. **G** lists every ring with its tiles left; removing one refunds its honey so it can be rebuilt where there's work.
 - Rocks, stumps, heart trees and buildings have collision.
 - Bloom 90% of a glade to **restore** it: the rest flourishes outward from the heart, a heart tree grows, the creeks fill with water, and you get bonus pollen plus a permanent pollen multiplier.
 - Progress autosaves to localStorage every 10 seconds. The shop has a reset button.

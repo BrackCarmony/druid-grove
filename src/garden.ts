@@ -174,7 +174,7 @@ export class Garden {
           break;
         }
         w.work[t] = 1;
-        w.seeded[t] = 1;
+        w.setSeeded(t);
         w.growth[t] = 0;
         w.growing.add(t);
         if (!audible) this.quiet.add(t);
@@ -262,7 +262,7 @@ export class Garden {
       }
       if (w.seeded[t]) return;
       const [x, z] = w.tileCenter(t);
-      w.seeded[t] = 1;
+      w.setSeeded(t);
       w.work[t] = 1;
       w.growth[t] = -wdist(hx, hz, x, z) * 0.05 - Math.random() * 0.3;
       w.growing.add(t);
@@ -348,6 +348,7 @@ export class Garden {
       ringsBuilt: this.econ.ringsBuilt,
       densBuilt: this.econ.densBuilt,
       stonesBuilt: this.econ.stonesBuilt,
+      wayfarers: this.econ.wayfarers,
       extra,
       current: this.econ.current,
       levels: this.econ.levels,
@@ -392,6 +393,7 @@ export class Garden {
       this.econ.ringsBuilt = d.ringsBuilt ?? 0;
       this.econ.densBuilt = d.densBuilt ?? 0;
       this.econ.stonesBuilt = d.stonesBuilt ?? 0;
+      this.econ.wayfarers = d.wayfarers ?? 0;
       const bin = atob(d.tiles);
       const tiles = new Uint8Array(SIZE * SIZE);
       for (let k = 0, t = 0; k < bin.length; k += 2) {
@@ -403,7 +405,7 @@ export class Garden {
       for (let t = 0; t < SIZE * SIZE; t++) {
         const b = tiles[t];
         if (b === 255) {
-          w.seeded[t] = 1;
+          w.setSeeded(t);
           w.work[t] = 1;
           w.growth[t] = 1;
           w.bloomed[t] = 1;

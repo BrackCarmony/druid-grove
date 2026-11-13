@@ -106,6 +106,20 @@ if (loadedExtra) {
   for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
 }
 apiary.syncBears(loadedExtra?.bearHomes);
+fairies.syncFairies(); // wayfarers
+
+/** Planet-wide restoration: bloomed share of all plantable land, and glades restored. */
+const planetTotal = world.glades.reduce((n, g) => n + g.total, 0);
+const realGlades = world.glades.filter((g) => g.total > 0).length;
+function planetProgress() {
+  let bloomed = 0;
+  let done = 0;
+  for (const g of world.glades) {
+    bloomed += g.bloomed;
+    if (g.completed && g.total > 0) done++;
+  }
+  return { pct: (100 * bloomed) / planetTotal, done };
+}
 player.setTool(econ.current);
 player.ride(econ.mount);
 
@@ -270,6 +284,25 @@ function renderShop() {
       );
     }
   }
+
+  // The wayfarer: an expensive fairy with no ring, roaming the planet for missed ground.
+  const cost = econ.wayfarerCost;
+  const needs = !econ.has('ring');
+  $('shop-fairies').prepend(
+    card(
+      `Wayfarer Fairy <span class="desc">${econ.wayfarers} roaming</span>`,
+      `No ring and no range: wanders the whole planet planting any bare ground no ring covers. Flies faster and carries twice as many seeds.`,
+      needs ? 'Requires a Fairy Ring' : `${HONEY} ${fmt(cost)}`,
+      !needs && econ.honey >= cost,
+      () => {
+        if (econ.honey < econ.wayfarerCost) return;
+        econ.honey -= econ.wayfarerCost;
+        econ.wayfarers++;
+        fairies.syncFairies();
+        bought('A wayfarer fairy sets out from the Seed Hollow.');
+      },
+    ),
+  );
 }
 
 /** Where a structure would go: the cursor on foot, or under the mount. Returns null + toasts on failure. */
@@ -596,9 +629,10 @@ function renderRings() {
   const list = $('rings-list');
   list.innerHTML = '';
   ringRows = [];
+  const wf = econ.wayfarers ? ` · ${econ.wayfarers} wayfarer${econ.wayfarers === 1 ? '' : 's'} roaming` : '';
   $('rings-sub').textContent = fairies.rings.length
-    ? `${fairies.rings.length} ring${fairies.rings.length === 1 ? '' : 's'} · each tends ${econ.ringRadius}m around itself`
-    : '';
+    ? `${fairies.rings.length} ring${fairies.rings.length === 1 ? '' : 's'} · each tends ${econ.ringRadius}m around itself${wf}`
+    : wf.slice(3);
   if (!fairies.rings.length) {
     list.innerHTML = '<p class="dim">No fairy rings yet. Press <b>R</b> to build one (costs honey).</p>';
     return;
@@ -847,6 +881,11 @@ function frame() {
         ? 'Restored ✿'
         : `${Math.floor(pct * 100)}% · restore at ${COMPLETE_AT * 100}%`;
       $('glade-bar').style.width = `${Math.min(100, pct * 100)}%`;
+    }
+    {
+      const p = planetProgress();
+      const pctText = p.pct >= 99.95 ? '100' : p.pct < 10 ? p.pct.toFixed(2) : p.pct.toFixed(1);
+      $('planet-pct').innerHTML = `Planet <b>${pctText}%</b> restored · ${p.done} / ${realGlades} glades`;
     }
     let hint = '';
     if (mount) {

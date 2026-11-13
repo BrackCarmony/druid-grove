@@ -93,6 +93,15 @@ body {
   color: var(--ink-dim);
 }
 
+#planet-pct {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+#planet-pct b {
+  color: var(--leaf);
+  font-weight: 600;
+}
 #glade-box {
   position: absolute;
   top: 58px;

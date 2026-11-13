@@ -1,13 +1,15 @@
 import * as THREE from 'three';
-import { Economy } from './economy';
+import { Economy, WAYFARER } from './economy';
 import { Particles } from './fx';
 import { Garden, SeedPool } from './garden';
 import { Cache, Stations } from './stations';
-import { HALF, Soil, tileIndex, wdist, World, wrap } from './world';
+import { BCHUNK, HALF, NBC, SIZE, Soil, tileIndex, wdist, World, wrap } from './world';
 
 // Planter fairies: bought with honey, they live in fairy rings the player places.
-// Each fairy fetches seeds from the nearest Seed Hollow or squirrel cache, flies
+// Each fairy fetches seeds from the nearest seed hub or squirrel cache, flies
 // out to the nearest unplanted ground within its ring's reach, and plants it.
+// Wayfarer fairies have no ring: they roam the whole planet hunting for bare
+// ground that no ring covers.
 
 const MIN_SPACING = 8;
 const RING_RANGE = 3;
@@ -21,7 +23,8 @@ const lam = (color: number, emissive = 0) => new THREE.MeshLambertMaterial({ col
 type State = 'fetch' | 'seek' | 'fly' | 'plant' | 'idle';
 
 interface Fairy {
-  ring: Ring;
+  ring: Ring | null; // null: a wayfarer, roaming the whole planet
+  chunk: number; // wayfarers: the bookkeeping chunk they're working
   pos: THREE.Vector3;
   state: State;
   seeds: number;
@@ -47,6 +50,7 @@ export interface Ring {
   recount: number;
 }
 
+const WAYFARER_HUE = 0xfff1b8;
 const PALETTE = [0xff9ee6, 0xb9a2ff, 0x9ef0ff, 0xfff59e, 0xa8ffb8];
 
 function ringModel() {
@@ -95,6 +99,8 @@ function ringModel() {
 export class FairyRings {
   group = new THREE.Group();
   rings: Ring[] = [];
+  wayfarers: Fairy[] = [];
+  private wildExhaustedUntil = 0;
   private claimed = new Set<number>();
   private bodies: THREE.InstancedMesh;
   private wings: THREE.InstancedMesh;
@@ -173,36 +179,46 @@ export class FairyRings {
     return n;
   }
 
+  private makeFairy(ring: Ring | null, x: number, z: number, hue: number): Fairy {
+    const f: Fairy = {
+      ring,
+      chunk: -1,
+      pos: new THREE.Vector3(x, this.world.heightAt(x, z) + 1.5, z),
+      state: 'fetch',
+      seeds: 0,
+      target: -1,
+      tx: 0,
+      tz: 0,
+      wait: Math.random() * 0.5,
+      hue,
+      phase: Math.random() * 10,
+      sparkle: 0,
+      pool: null!,
+    };
+    f.pool = {
+      get count() {
+        return f.seeds;
+      },
+      take() {
+        if (f.seeds < 1) return false;
+        f.seeds--;
+        return true;
+      },
+    };
+    return f;
+  }
+
   syncFairies() {
     const want = this.econ.fairiesPerRing;
     for (const r of this.rings) {
       while (r.fairies.length < want) {
-        const f: Fairy = {
-          ring: r,
-          pos: new THREE.Vector3(r.x, this.world.heightAt(r.x, r.z) + 1.5, r.z),
-          state: 'fetch',
-          seeds: 0,
-          target: -1,
-          tx: 0,
-          tz: 0,
-          wait: Math.random() * 0.5,
-          hue: PALETTE[(this.fairyCount + r.fairies.length) % PALETTE.length],
-          phase: Math.random() * 10,
-          sparkle: 0,
-          pool: null!,
-        };
-        f.pool = {
-          get count() {
-            return f.seeds;
-          },
-          take() {
-            if (f.seeds < 1) return false;
-            f.seeds--;
-            return true;
-          },
-        };
-        r.fairies.push(f);
+        r.fairies.push(this.makeFairy(r, r.x, r.z, PALETTE[(this.fairyCount + r.fairies.length) % PALETTE.length]));
       }
+    }
+    // Wayfarers set out from the Seed Hollow.
+    const h = this.stations.hollow;
+    while (this.wayfarers.length < this.econ.wayfarers) {
+      this.wayfarers.push(this.makeFairy(null, h.x, h.z + 2.5, WAYFARER_HUE));
     }
   }
 
@@ -292,6 +308,61 @@ export class FairyRings {
     return -1;
   }
 
+  /** Bare plantable ground anywhere on the planet for a wayfarer, preferring spots no ring covers. */
+  private findWild(f: Fairy): number {
+    const w = this.world;
+    const soils = [Soil.Dirt, Soil.Clay, Soil.Stone].filter((s) => this.econ.canWork(s));
+    const R = this.econ.ringRadius;
+    const half = BCHUNK / 2;
+    // Spread wayfarers out: a chunk another wayfarer is working costs extra.
+    const taken = new Map<number, number>();
+    for (const o of this.wayfarers) if (o !== f && o.chunk >= 0) taken.set(o.chunk, (taken.get(o.chunk) ?? 0) + 1);
+    const skip = new Set<number>();
+    for (let attempt = 0; attempt < 6; attempt++) {
+      let best = -1;
+      let bestScore = Infinity;
+      for (let k = 0; k < NBC * NBC; k++) {
+        if (skip.has(k)) continue;
+        let rem = 0;
+        for (const s of soils) rem += w.remaining[k * 3 + s];
+        if (rem <= 0) continue;
+        const cx = (k % NBC) * BCHUNK - HALF + half;
+        const cz = ((k / NBC) | 0) * BCHUNK - HALF + half;
+        const d = wdist(f.pos.x, f.pos.z, cx, cz);
+        const covered = this.rings.some((r) => wdist(r.x, r.z, cx, cz) + half * 1.42 < R);
+        const score = d + (covered ? 3000 : 0) + (taken.get(k) ?? 0) * 250;
+        if (score < bestScore) {
+          bestScore = score;
+          best = k;
+        }
+      }
+      if (best < 0) return -1;
+      // Nearest free tile inside that chunk.
+      const i0 = (best % NBC) * BCHUNK;
+      const j0 = ((best / NBC) | 0) * BCHUNK;
+      let bt = -1;
+      let bd = Infinity;
+      for (let j = j0; j < j0 + BCHUNK; j++) {
+        for (let i = i0; i < i0 + BCHUNK; i++) {
+          const t = j * SIZE + i;
+          if (this.claimed.has(t) || !this.plantable(t)) continue;
+          const [x, z] = w.tileCenter(t);
+          const d = wdist(f.pos.x, f.pos.z, x, z);
+          if (d < bd) {
+            bd = d;
+            bt = t;
+          }
+        }
+      }
+      if (bt >= 0) {
+        f.chunk = best;
+        return bt;
+      }
+      skip.add(best);
+    }
+    return -1;
+  }
+
   /** Nearest place with seeds: a hub (Hollow or waystone, bottomless) or a stocked squirrel cache. */
   private nearestSource(x: number, z: number) {
     const h = this.stations.nearestHub(x, z);
@@ -318,11 +389,11 @@ export class FairyRings {
   }
 
   /** Fly toward (x, z); returns true on arrival. */
-  private flyTo(f: Fairy, x: number, z: number, dt: number, height: number) {
+  private flyTo(f: Fairy, x: number, z: number, dt: number, height: number, speedMul = 1) {
     const dx = wrap(x - f.pos.x); // the short way round
     const dz = wrap(z - f.pos.z);
     const d = Math.hypot(dx, dz);
-    const step = this.econ.fairySpeed * dt;
+    const step = this.econ.fairySpeed * speedMul * dt;
     if (d > 0.05) {
       const k = Math.min(1, step / d);
       f.pos.x = wrap(f.pos.x + dx * k);
@@ -335,107 +406,118 @@ export class FairyRings {
   }
 
   update(dt: number, time: number, playerPos: THREE.Vector3) {
-    const carry = this.econ.fairyCarry;
-    const power = this.econ.fairyPower;
     for (const r of this.rings) {
       r.recount -= dt;
       if (r.recount <= 0) {
         r.recount = 3 + Math.random();
         this.countLeft(r);
       }
-      for (const f of r.fairies) {
-        f.wait -= dt;
-        switch (f.state) {
-          case 'fetch': {
-            const src = this.nearestSource(f.pos.x, f.pos.z);
-            if (this.flyTo(f, src.x, src.z, dt, 1.6)) {
-              if (f.wait > 0) break;
-              const need = carry - f.seeds;
-              let got = need;
-              if (src.cache) {
-                got = Math.min(need, Math.floor(src.cache.stock));
-                src.cache.stock -= got;
-              }
-              f.seeds += got;
-              if (f.seeds >= carry * 0.5) f.state = 'seek';
-              else f.wait = 0.8; // wait for the squirrels
-            }
-            break;
+      for (const f of r.fairies) this.step(f, dt, time, playerPos);
+    }
+    for (const f of this.wayfarers) this.step(f, dt, time, playerPos);
+    this.draw(time, playerPos);
+  }
+
+  private step(f: Fairy, dt: number, time: number, playerPos: THREE.Vector3) {
+    const r = f.ring;
+    const wild = !r;
+    const carry = this.econ.fairyCarry * (wild ? WAYFARER.carryMul : 1);
+    const speed = wild ? WAYFARER.speedMul : 1;
+    const exhaustedUntil = r ? r.exhaustedUntil : this.wildExhaustedUntil;
+    f.wait -= dt;
+    switch (f.state) {
+      case 'fetch': {
+        const src = this.nearestSource(f.pos.x, f.pos.z);
+        if (this.flyTo(f, src.x, src.z, dt, 1.6, speed)) {
+          if (f.wait > 0) break;
+          const need = carry - f.seeds;
+          let got = need;
+          if (src.cache) {
+            got = Math.min(need, Math.floor(src.cache.stock));
+            src.cache.stock -= got;
           }
-          case 'seek': {
-            if (time < r.exhaustedUntil) {
-              f.state = 'idle';
-              break;
-            }
-            const t = this.findTile(r, f.pos.x, f.pos.z);
-            if (t < 0) {
-              r.exhaustedUntil = time + 3;
-              f.state = 'idle';
-              break;
-            }
-            f.target = t;
-            this.claimed.add(t);
-            [f.tx, f.tz] = this.world.tileCenter(t);
-            f.state = 'fly';
-            break;
-          }
-          case 'fly':
-            if (!this.plantable(f.target)) {
-              this.release(f);
-              f.state = 'seek';
-            } else if (this.flyTo(f, f.tx, f.tz, dt, HOVER)) f.state = 'plant';
-            break;
-          case 'plant':
-            this.flyTo(f, f.tx, f.tz, dt, HOVER);
-            this.garden.workPatch(dt, f.tx, f.tz, 1.1, power, f.pool);
-            if (!this.plantable(f.target)) {
-              this.release(f);
-              f.state = f.seeds < 1 ? 'fetch' : 'seek';
-            } else if (f.seeds < 1) {
-              this.release(f);
-              f.state = 'fetch';
-            }
-            break;
-          case 'idle': {
-            // dance around the ring until there's work again
-            const a = time * 0.9 + f.phase;
-            this.flyTo(f, r.x + Math.cos(a) * 2.5, r.z + Math.sin(a) * 2.5, dt, 1.8);
-            if (time >= r.exhaustedUntil && f.wait <= 0) {
-              f.wait = 1 + Math.random();
-              f.state = f.seeds < 1 ? 'fetch' : 'seek';
-            }
-            break;
-          }
+          f.seeds += got;
+          if (f.seeds >= carry * 0.5) f.state = 'seek';
+          else f.wait = 0.8; // wait for the squirrels
         }
-        f.sparkle -= dt;
-        if (f.sparkle <= 0 && f.state !== 'idle') {
-          f.sparkle = 0.12;
-          const near = wdist(playerPos.x, playerPos.z, f.pos.x, f.pos.z) < 80;
-          if (near) this.particles.burst(f.pos.x, f.pos.y, f.pos.z, f.hue, 1, 0.1, 0.2);
+        break;
+      }
+      case 'seek': {
+        if (time < exhaustedUntil) {
+          f.state = 'idle';
+          break;
         }
+        const t = r ? this.findTile(r, f.pos.x, f.pos.z) : this.findWild(f);
+        if (t < 0) {
+          if (r) r.exhaustedUntil = time + 3;
+          else this.wildExhaustedUntil = time + 4;
+          f.chunk = -1;
+          f.state = 'idle';
+          break;
+        }
+        f.target = t;
+        this.claimed.add(t);
+        [f.tx, f.tz] = this.world.tileCenter(t);
+        f.state = 'fly';
+        break;
+      }
+      case 'fly':
+        if (!this.plantable(f.target)) {
+          this.release(f);
+          f.state = 'seek';
+        } else if (this.flyTo(f, f.tx, f.tz, dt, HOVER, speed)) f.state = 'plant';
+        break;
+      case 'plant':
+        this.flyTo(f, f.tx, f.tz, dt, HOVER, speed);
+        this.garden.workPatch(dt, f.tx, f.tz, 1.1, this.econ.fairyPower, f.pool);
+        if (!this.plantable(f.target)) {
+          this.release(f);
+          f.state = f.seeds < 1 ? 'fetch' : 'seek';
+        } else if (f.seeds < 1) {
+          this.release(f);
+          f.state = 'fetch';
+        }
+        break;
+      case 'idle': {
+        // Ring fairies dance around their ring; a wayfarer circles where it is.
+        const a = time * 0.9 + f.phase;
+        const cx = r ? r.x : f.tx;
+        const cz = r ? r.z : f.tz;
+        this.flyTo(f, cx + Math.cos(a) * 2.5, cz + Math.sin(a) * 2.5, dt, 1.8, speed);
+        if (time >= exhaustedUntil && f.wait <= 0) {
+          f.wait = 1 + Math.random();
+          f.state = f.seeds < 1 ? 'fetch' : 'seek';
+        }
+        break;
       }
     }
-    this.draw(time, playerPos);
+    f.sparkle -= dt;
+    if (f.sparkle <= 0 && f.state !== 'idle') {
+      f.sparkle = wild ? 0.06 : 0.12;
+      const near = wdist(playerPos.x, playerPos.z, f.pos.x, f.pos.z) < 80;
+      if (near) this.particles.burst(f.pos.x, f.pos.y, f.pos.z, f.hue, 1, 0.1, 0.2);
+    }
   }
 
   private draw(time: number, playerPos: THREE.Vector3) {
     let n = 0;
-    for (const r of this.rings) {
-      for (const f of r.fairies) {
+    for (const list of [...this.rings.map((r) => r.fairies), this.wayfarers]) {
+      for (const f of list) {
         if (n >= MAX_FAIRIES) break;
+        const size = f.ring ? 1 : 1.6;
         if (wdist(playerPos.x, playerPos.z, f.pos.x, f.pos.z) > DRAW_DIST) continue;
         const bob = Math.sin(time * 5 + f.phase) * 0.12;
         const heading =
           f.state === 'plant' ? time * 2 + f.phase : Math.atan2(wrap(f.tx - f.pos.x), wrap(f.tz - f.pos.z));
         this.v.set(f.pos.x, f.pos.y + bob, f.pos.z);
-        this.m4.makeTranslation(this.v);
+        this.m4.makeScale(size, size, size).setPosition(this.v);
         this.bodies.setMatrixAt(n, this.m4);
         this.bodies.setColorAt(n, this.col.set(f.hue));
         const flap = Math.sin(time * 38 + f.phase) * 0.7;
         for (const side of [-1, 1]) {
           this.e.set(0, heading + (side < 0 ? Math.PI : 0), side * (0.5 + flap), 'YXZ');
           this.q.setFromEuler(this.e);
-          this.s.set(1, 1, 1);
+          this.s.setScalar(size);
           this.m4.compose(this.v, this.q, this.s);
           this.wings.setMatrixAt(n * 2 + (side < 0 ? 0 : 1), this.m4);
         }

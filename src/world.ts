@@ -11,6 +11,9 @@ export const SIZE = 1024;
 export const HALF = SIZE / 2;
 const CELL = 32; // glade seed spacing
 const NC = SIZE / CELL;
+/** Bookkeeping chunks: unplanted tiles are counted per chunk so planet-wide searches stay cheap. */
+export const BCHUNK = 32;
+export const NBC = SIZE / BCHUNK;
 
 /** Bring a coordinate back into [-HALF, HALF). Also works on differences (shortest way round). */
 export function wrap(v: number) {
@@ -155,6 +158,8 @@ export class World {
   bloomed = new Uint8Array(SIZE * SIZE);
   wet = new Uint8Array(SIZE * SIZE);
   growing = new Set<number>();
+  /** Unplanted tiles per bookkeeping chunk and soil: index chunk * 3 + soil. */
+  remaining = new Int32Array(NBC * NBC * 3);
 
   stateTex: THREE.DataTexture;
   staticTex: THREE.DataTexture;
@@ -172,6 +177,9 @@ export class World {
     this.generateGlades(rng);
     this.generateHeights(seed);
     this.staticTex = this.buildStaticTexture(seed);
+    for (let t = 0; t < SIZE * SIZE; t++) {
+      if (this.soil[t] !== Soil.Creek) this.remaining[this.chunkOf(t) * 3 + this.soil[t]]++;
+    }
     this.stateTex = new THREE.DataTexture(this.stateData, SIZE, SIZE, THREE.RGBAFormat);
     this.stateTex.magFilter = THREE.LinearFilter;
     this.stateTex.minFilter = THREE.LinearFilter;
@@ -419,6 +427,19 @@ export class World {
     }
     this.dirtyRows.clear();
     this.stateTex.needsUpdate = true;
+  }
+
+  chunkOf(t: number) {
+    const i = t % SIZE;
+    const j = (t / SIZE) | 0;
+    return ((j / BCHUNK) | 0) * NBC + ((i / BCHUNK) | 0);
+  }
+
+  /** The one place a tile becomes seeded, so the per-chunk counts stay right. */
+  setSeeded(t: number) {
+    if (this.seeded[t]) return;
+    this.seeded[t] = 1;
+    if (this.soil[t] !== Soil.Creek) this.remaining[this.chunkOf(t) * 3 + this.soil[t]]--;
   }
 
   isPlantable(t: number) {
