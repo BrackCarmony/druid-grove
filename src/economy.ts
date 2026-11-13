@@ -67,7 +67,7 @@ export const MOUNTS: MountDef[] = [
     requires: 'rake',
     radius: 3.2,
     power: 2.6,
-    seedCap: 400,
+    seedCap: 800,
     speed: 3.2,
     runSpeed: 4.8,
     eye: 2.4,
@@ -81,7 +81,7 @@ export const MOUNTS: MountDef[] = [
     requires: 'worms',
     radius: 4.6,
     power: 5,
-    seedCap: 1600,
+    seedCap: 3200,
     speed: 8,
     runSpeed: 13,
     eye: 2.9,
@@ -101,7 +101,8 @@ export const SOILS: Record<number, SoilDef> = {
   [Soil.Stone]: { hardness: 8, yield: 22, unlock: 'moss' },
 };
 
-export type UpgradeGroup = 'planting' | 'seeds' | 'squirrels' | 'soil';
+export type UpgradeGroup = 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies';
+export type Currency = 'pollen' | 'honey';
 
 export interface UpgradeDef {
   id: string;
@@ -112,6 +113,7 @@ export interface UpgradeDef {
   growth: number;
   max: number;
   requires?: string; // tool, mount or upgrade id
+  currency?: Currency; // default pollen
 }
 
 export const UPGRADES: UpgradeDef[] = [
@@ -119,7 +121,7 @@ export const UPGRADES: UpgradeDef[] = [
     id: 'fingers',
     group: 'planting',
     name: 'Nimble Fingers',
-    blurb: (l) => `Plant 25% faster by hand (now +${l * 25}%)`,
+    blurb: (l) => `Plant 25% faster by hand and 10% faster on a mount (now +${l * 25}% / +${l * 10}%)`,
     baseCost: 12,
     growth: 1.55,
     max: 20,
@@ -211,15 +213,129 @@ export const UPGRADES: UpgradeDef[] = [
     max: 1,
     requires: 'rake',
   },
+  {
+    id: 'clover',
+    group: 'hives',
+    name: 'Clover Nectar',
+    blurb: (l) => `Bees make 30% more honey (now ×${Math.pow(1.3, l).toFixed(2)})`,
+    baseCost: 1500,
+    growth: 1.8,
+    max: 10,
+    requires: 'hive',
+  },
+  {
+    id: 'combs',
+    group: 'hives',
+    name: 'Deeper Combs',
+    blurb: (l) => `Hives hold twice as much honey (now ${fmtInt(hiveCap(l))})`,
+    baseCost: 1200,
+    growth: 1.9,
+    max: 8,
+    requires: 'hive',
+  },
+  {
+    id: 'pots',
+    group: 'hives',
+    name: 'Bigger Honey Pots',
+    blurb: (l) => `Bears carry 50% more honey (now ${fmtInt(bearCarry(l))})`,
+    baseCost: 1000,
+    growth: 1.85,
+    max: 10,
+    requires: 'hive',
+  },
+  {
+    id: 'trails',
+    group: 'hives',
+    name: 'Bear Trails',
+    blurb: (l) => `Bears lumber 20% faster (now +${l * 20}%)`,
+    baseCost: 1400,
+    growth: 1.9,
+    max: 8,
+    requires: 'hive',
+  },
+  {
+    id: 'flock',
+    group: 'fairies',
+    name: 'Fairy Flock',
+    blurb: (l) => `+1 fairy living in every ring (now ${FAIRY.perRing + l} each)`,
+    baseCost: 150,
+    growth: 1.8,
+    max: 9,
+    requires: 'ring',
+    currency: 'honey',
+  },
+  {
+    id: 'wings',
+    group: 'fairies',
+    name: 'Gossamer Wings',
+    blurb: (l) => `Fairies fly 25% faster (now +${l * 25}%)`,
+    baseCost: 120,
+    growth: 1.75,
+    max: 8,
+    requires: 'ring',
+    currency: 'honey',
+  },
+  {
+    id: 'baskets',
+    group: 'fairies',
+    name: 'Acorn Baskets',
+    blurb: (l) => `Fairies carry 50% more seeds (now ${fmtInt(fairyCarry(l))})`,
+    baseCost: 100,
+    growth: 1.75,
+    max: 10,
+    requires: 'ring',
+    currency: 'honey',
+  },
+  {
+    id: 'dust',
+    group: 'fairies',
+    name: 'Fairy Dust',
+    blurb: (l) => `Fairies plant 40% faster (now ×${Math.pow(1.4, l).toFixed(2)})`,
+    baseCost: 140,
+    growth: 1.8,
+    max: 8,
+    requires: 'ring',
+    currency: 'honey',
+  },
+  {
+    id: 'circle',
+    group: 'fairies',
+    name: 'Wider Rings',
+    blurb: (l) => `Fairies tend 12m further from their ring (now ${FAIRY.radius + l * 12}m)`,
+    baseCost: 200,
+    growth: 1.9,
+    max: 8,
+    requires: 'ring',
+    currency: 'honey',
+  },
 ];
+
+function fmtInt(n: number) {
+  return Math.round(n).toLocaleString();
+}
+export function hiveCap(l: number) {
+  return HIVE.cap * Math.pow(2, l);
+}
+export function bearCarry(l: number) {
+  return Math.round(BEAR.carry * Math.pow(1.5, l));
+}
+export function fairyCarry(l: number) {
+  return Math.round(FAIRY.carry * Math.pow(1.5, l));
+}
+
+/** Bees forage blooms within `radius` of the hive; each bloomed tile makes `perFlower` honey/s. */
+export const HIVE = { radius: 22, perFlower: 0.004, cap: 120, baseCost: 1200, growth: 1.6 };
+export const BEAR = { carry: 30, speed: 4.5, baseCost: 600, growth: 1.45 };
+export const FAIRY = { perRing: 3, carry: 40, speed: 9, radius: 36, power: 1.5, plantRadius: 1.1 };
+export const RING = { baseCost: 60, growth: 1.7 };
 
 export function satchelCap(lvl: number) {
   return Math.round((30 * Math.pow(1.6, lvl)) / 5) * 5;
 }
 
 export const SQUIRREL = {
-  baseCarry: 12,
-  baseStock: 120,
+  baseCarry: 120,
+  baseStock: 1200,
   speed: 9, // m/s
 };
 
@@ -236,6 +352,11 @@ export class Economy {
   seeds = 30;
   mountSeeds: Record<string, number> = {};
   cachesBuilt = 0;
+  honey = 0;
+  lifetimeHoney = 0;
+  hivesBuilt = 0;
+  bears = 0;
+  ringsBuilt = 0;
 
   level(id: string) {
     return this.levels[id] ?? 0;
@@ -243,11 +364,15 @@ export class Economy {
 
   has(id: string) {
     if (id === 'cache') return this.cachesBuilt > 0;
+    if (id === 'hive') return this.hivesBuilt > 0;
+    if (id === 'ring') return this.ringsBuilt > 0;
     return this.tools.has(id as ToolId) || this.mounts.has(id as MountId) || this.level(id) > 0;
   }
 
   nameOf(id: string) {
     if (id === 'cache') return 'a Squirrel Cache';
+    if (id === 'hive') return 'a Beehive';
+    if (id === 'ring') return 'a Fairy Ring';
     return (
       TOOLS.find((t) => t.id === id)?.name ??
       MOUNTS.find((m) => m.id === id)?.name ??
@@ -270,6 +395,11 @@ export class Economy {
 
   get power() {
     return this.tool.power * (1 + 0.25 * this.level('fingers'));
+  }
+
+  /** Mounts get a smaller share of Nimble Fingers (a maxed stag clears clay at a full gallop). */
+  mountPower(m: MountDef) {
+    return m.power * (1 + 0.1 * this.level('fingers'));
   }
 
   get reach() {
@@ -341,6 +471,58 @@ export class Economy {
     return Math.ceil(60 * Math.pow(1.6, this.cachesBuilt));
   }
 
+  // ---------- hives, bears, fairies ----------
+
+  get hiveCost() {
+    return Math.ceil(HIVE.baseCost * Math.pow(HIVE.growth, this.hivesBuilt));
+  }
+  /** The first bear comes free with the first hive. */
+  get bearCost() {
+    return Math.ceil(BEAR.baseCost * Math.pow(BEAR.growth, Math.max(0, this.bears - 1)));
+  }
+  get hiveCap() {
+    return hiveCap(this.level('combs'));
+  }
+  get honeyPerFlower() {
+    return HIVE.perFlower * Math.pow(1.3, this.level('clover'));
+  }
+  get bearCarry() {
+    return bearCarry(this.level('pots'));
+  }
+  get bearSpeed() {
+    return BEAR.speed * (1 + 0.2 * this.level('trails'));
+  }
+  get ringCost() {
+    return Math.ceil(RING.baseCost * Math.pow(RING.growth, this.ringsBuilt));
+  }
+  get fairiesPerRing() {
+    return FAIRY.perRing + this.level('flock');
+  }
+  get fairySpeed() {
+    return FAIRY.speed * (1 + 0.25 * this.level('wings'));
+  }
+  get fairyCarry() {
+    return fairyCarry(this.level('baskets'));
+  }
+  get fairyPower() {
+    return FAIRY.power * Math.pow(1.4, this.level('dust'));
+  }
+  get ringRadius() {
+    return FAIRY.radius + 12 * this.level('circle');
+  }
+
+  wallet(c: Currency = 'pollen') {
+    return c === 'honey' ? this.honey : this.pollen;
+  }
+  spend(c: Currency, n: number) {
+    if (c === 'honey') this.honey -= n;
+    else this.pollen -= n;
+  }
+  addHoney(n: number) {
+    this.honey += n;
+    this.lifetimeHoney += n;
+  }
+
   canWork(soil: Soil) {
     if (soil === Soil.Creek) return false;
     const u = SOILS[soil].unlock;
@@ -372,9 +554,10 @@ export class Economy {
 
   buyUpgrade(u: UpgradeDef) {
     const cost = this.upgradeCost(u);
-    if (this.level(u.id) >= u.max || this.pollen < cost) return false;
+    const cur = u.currency ?? 'pollen';
+    if (this.level(u.id) >= u.max || this.wallet(cur) < cost) return false;
     if (u.requires && !this.has(u.requires)) return false;
-    this.pollen -= cost;
+    this.spend(cur, cost);
     this.levels[u.id] = this.level(u.id) + 1;
     if (u.id === 'satchel') this.seeds = this.seedCap;
     return true;

@@ -13,6 +13,12 @@ const SAVE_KEY = 'druid-grove-save-v2';
 
 export type AimStatus = 'none' | 'ok' | 'far' | 'locked' | 'creek' | 'done' | 'empty';
 
+/** Where planted seeds come from: the nymph's satchel, a mount's sack, or a fairy's basket. */
+export interface SeedPool {
+  readonly count: number;
+  take(): boolean;
+}
+
 export interface GardenEvents {
   toast(msg: string, big?: boolean): void;
   earned(amount: number): void;
@@ -25,6 +31,7 @@ export class Garden {
   aimSoil: Soil = Soil.Dirt;
   private tmp = new THREE.Vector3();
   private lastTick = 0;
+  private econPool: SeedPool;
 
   constructor(
     private world: World,
@@ -35,7 +42,15 @@ export class Garden {
     private particles: Particles,
     private chimes: Chimes,
     private events: GardenEvents,
-  ) {}
+  ) {
+    const e = this.econ;
+    this.econPool = {
+      get count() {
+        return e.activeSeeds;
+      },
+      take: () => e.takeSeed(),
+    };
+  }
 
   // March along the camera ray until it dips below the heightfield.
   updateAim(camera: THREE.Camera, player: THREE.Vector3) {
@@ -109,13 +124,21 @@ export class Garden {
   /** Apply planting effort while the mouse is held. Returns true if anything was worked. */
   work(dt: number) {
     if (this.aimStatus !== 'ok') return false;
-    return this.workTiles(this.tilesUnderCursor(), this.econ.power, dt);
+    return this.workTiles(this.tilesUnderCursor(), this.econ.power, dt, this.econPool, true);
   }
 
   /** Mounts plant everything in a circle around themselves, no clicking needed. */
   workMount(dt: number, x: number, z: number, m: MountDef) {
+    return this.workTiles(this.tilesInCircle(x, z, m.radius), this.econ.mountPower(m), dt, this.econPool, true);
+  }
+
+  /** Fairies plant a small patch with seeds from their own basket. */
+  workPatch(dt: number, x: number, z: number, r: number, power: number, pool: SeedPool) {
+    return this.workTiles(this.tilesInCircle(x, z, r), power, dt, pool, false);
+  }
+
+  tilesInCircle(x: number, z: number, r: number) {
     const tiles: number[] = [];
-    const r = m.radius;
     const ci = Math.floor(x + HALF);
     const cj = Math.floor(z + HALF);
     const ri = Math.ceil(r);
@@ -127,21 +150,21 @@ export class Garden {
         if (Math.hypot(tx - x, tz - z) <= r) tiles.push(t);
       }
     }
-    return this.workTiles(tiles, m.power, dt);
+    return tiles;
   }
 
-  private workTiles(tiles: number[], power: number, dt: number) {
+  private workTiles(tiles: number[], power: number, dt: number, pool: SeedPool, audible: boolean) {
     const w = this.world;
     let any = false;
     for (const t of tiles) {
       const soil = w.soil[t] as Soil;
       if (!w.isPlantable(t) || !this.econ.canWork(soil)) continue;
       // A tile only takes effort while there's a seed to put in it.
-      if (this.econ.activeSeeds < 1) break;
+      if (pool.count < 1) break;
       w.work[t] += (power * dt) / SOILS[soil].hardness;
       any = true;
       if (w.work[t] >= 1) {
-        if (!this.econ.takeSeed()) {
+        if (!pool.take()) {
           w.work[t] = 0.99;
           break;
         }
@@ -155,7 +178,7 @@ export class Garden {
       w.markDirty(t);
     }
     const now = performance.now();
-    if (any && now - this.lastTick > 140) {
+    if (any && audible && now - this.lastTick > 140) {
       this.lastTick = now;
       this.chimes.plantTick();
     }
@@ -298,6 +321,11 @@ export class Garden {
       riding: this.econ.riding,
       autoPlant: this.econ.autoPlant,
       cachesBuilt: this.econ.cachesBuilt,
+      honey: this.econ.honey,
+      lifetimeHoney: this.econ.lifetimeHoney,
+      hivesBuilt: this.econ.hivesBuilt,
+      bears: this.econ.bears,
+      ringsBuilt: this.econ.ringsBuilt,
       extra,
       current: this.econ.current,
       levels: this.econ.levels,
@@ -335,6 +363,11 @@ export class Garden {
       this.econ.riding = d.riding ?? null;
       this.econ.autoPlant = d.autoPlant ?? true;
       this.econ.cachesBuilt = d.cachesBuilt ?? 0;
+      this.econ.honey = d.honey ?? 0;
+      this.econ.lifetimeHoney = d.lifetimeHoney ?? 0;
+      this.econ.hivesBuilt = d.hivesBuilt ?? 0;
+      this.econ.bears = d.bears ?? 0;
+      this.econ.ringsBuilt = d.ringsBuilt ?? 0;
       const bin = atob(d.tiles);
       const completed = new Set<number>(d.completed);
       for (let t = 0; t < SIZE * SIZE; t++) {

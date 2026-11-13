@@ -63,6 +63,19 @@ body {
     transform: scale(1.08);
   }
 }
+#honey {
+  font-size: 22px;
+  font-weight: 600;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+#honey.pulse {
+  animation: pulse 0.25s ease-out;
+}
+.honey-ico {
+  color: #ffb627;
+}
 #mult {
   font-size: 13px;
   color: var(--ink-dim);

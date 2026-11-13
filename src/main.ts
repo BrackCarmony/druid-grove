@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { Apiary } from './apiary';
 import { Colliders } from './colliders';
-import { Economy, MOUNTS, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { Economy, HIVE, MOUNTS, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { FairyRings } from './fairies';
 import { Chimes, Particles } from './fx';
 import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
@@ -70,14 +72,24 @@ const garden = new Garden(world, econ, flowers, hearts, scenery, particles, chim
   },
 });
 
+const apiary = new Apiary(world, econ, colliders);
+scene.add(apiary.group);
+const fairies = new FairyRings(world, econ, garden, stations, particles);
+scene.add(fairies.group);
+
 interface SaveExtra {
   caches: { x: number; z: number; stock: number }[];
+  hives?: { x: number; z: number; honey: number }[];
+  rings?: { x: number; z: number }[];
 }
 const loaded = garden.load(player);
 if (loaded) {
   const extra = loaded.extra as SaveExtra | undefined;
   for (const c of extra?.caches ?? []) stations.build(c.x, c.z, c.stock);
+  for (const h of extra?.hives ?? []) apiary.build(h.x, h.z, h.honey);
+  for (const r of extra?.rings ?? []) fairies.build(r.x, r.z);
 }
+apiary.syncBears();
 player.setTool(econ.current);
 player.ride(econ.mount);
 
@@ -153,6 +165,7 @@ function card(name: string, desc: string, label: string, enabled: boolean, onBuy
 
 function renderShop() {
   $('shop-pollen').textContent = fmt(econ.pollen);
+  $('shop-honey').textContent = fmt(econ.honey);
   const bought = (msg: string) => {
     chimes.purchase();
     toast(msg);
@@ -191,23 +204,47 @@ function renderShop() {
     );
   });
 
-  const groups: UpgradeGroup[] = ['planting', 'seeds', 'squirrels', 'soil'];
+  const hives = $('shop-hives');
+  hives.innerHTML = '';
+  {
+    const needs = !econ.has('hive');
+    const cost = econ.bearCost;
+    hives.appendChild(
+      card(
+        `Hire a Bear <span class="desc">${econ.bears} working</span>`,
+        `Bears carry honey from your hives back to the Bear Den. Each carries ${econ.bearCarry}.`,
+        needs ? 'Build a Beehive first (H)' : `✿ ${fmt(cost)}`,
+        !needs && econ.pollen >= cost,
+        () => {
+          if (econ.pollen < econ.bearCost) return;
+          econ.pollen -= econ.bearCost;
+          econ.bears++;
+          apiary.syncBears();
+          bought('A bear lumbers out of the den.');
+        },
+      ),
+    );
+  }
+
+  const groups: UpgradeGroup[] = ['planting', 'seeds', 'squirrels', 'soil', 'hives', 'fairies'];
   for (const grp of groups) {
     const box = $(`shop-${grp}`);
-    box.innerHTML = '';
+    if (grp !== 'hives') box.innerHTML = '';
     for (const u of UPGRADES.filter((x) => x.group === grp)) {
       const lvl = econ.level(u.id);
       const maxed = lvl >= u.max;
       const needs = u.requires && !econ.has(u.requires);
       const cost = econ.upgradeCost(u);
       const name = u.max > 1 ? `${u.name} <span class="desc">Lv ${lvl}/${u.max}</span>` : u.name;
-      let label = `✿ ${fmt(cost)}`;
+      const honey = u.currency === 'honey';
+      let label = `${honey ? '⬢' : '✿'} ${fmt(cost)}`;
       if (maxed) label = u.max === 1 ? 'Owned' : 'Maxed';
       else if (needs) label = `Requires ${econ.nameOf(u.requires!)}`;
       box.appendChild(
-        card(name, u.blurb(lvl), label, !maxed && !needs && econ.pollen >= cost, () => {
+        card(name, u.blurb(lvl), label, !maxed && !needs && econ.wallet(u.currency) >= cost, () => {
           if (econ.buyUpgrade(u)) {
             if (u.id === 'family') stations.syncSquirrels();
+            if (u.id === 'flock') fairies.syncFairies();
             bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`);
           }
         }),
@@ -216,30 +253,83 @@ function renderShop() {
   }
 }
 
-function buildCache() {
-  const cost = econ.cacheCost;
+/** Where a structure would go: the cursor on foot, or under the mount. Returns null + toasts on failure. */
+function placement(): [number, number] | null {
   let x = player.pos.x;
   let z = player.pos.z;
   if (!econ.riding && garden.aimValid) {
     const d = Math.hypot(garden.aim.x - x, garden.aim.z - z);
-    if (d > 8) return toast('Too far away to build there.');
+    if (d > 8) {
+      toast('Too far away to build there.');
+      return null;
+    }
     x = garden.aim.x;
     z = garden.aim.z;
   }
   const t = world.tileAt(x, z);
-  if (t < 0 || world.soil[t] === Soil.Creek) return toast("Can't build in a creek bed.");
-  const why = stations.canBuildAt(x, z);
-  if (why) return toast(why + '.');
-  if (econ.pollen < cost) {
-    chimes.deny();
-    return toast(`A squirrel cache costs ✿ ${fmt(cost)}.`);
+  if (t < 0 || world.soil[t] === Soil.Creek) {
+    toast("Can't build in a creek bed.");
+    return null;
   }
-  econ.pollen -= cost;
-  econ.cachesBuilt++;
-  stations.build(x, z);
+  const why = stations.canBuildAt(x, z) ?? apiary.canBuildAt(x, z) ?? fairies.canBuildAt(x, z);
+  if (why) {
+    toast(why + '.');
+    return null;
+  }
+  return [x, z];
+}
+
+function afford(cost: number, have: number, what: string) {
+  if (have >= cost) return true;
+  chimes.deny();
+  toast(`${what} costs ${fmt(cost)}.`);
+  return false;
+}
+
+function built(x: number, z: number, color: number, msg: string) {
   chimes.purchase();
-  particles.burst(x, world.heightAt(x, z) + 1, z, 0xffd36b, 50, 1.5, 2);
-  toast(`Squirrel cache built! Next one costs ✿ ${fmt(econ.cacheCost)}.`);
+  particles.burst(x, world.heightAt(x, z) + 1, z, color, 50, 1.5, 2);
+  toast(msg);
+}
+
+function buildCache() {
+  const p = placement();
+  if (!p || !afford(econ.cacheCost, econ.pollen, 'A squirrel cache ✿')) return;
+  econ.pollen -= econ.cacheCost;
+  econ.cachesBuilt++;
+  stations.build(p[0], p[1]);
+  built(p[0], p[1], 0xffd36b, `Squirrel cache built! Next one costs ✿ ${fmt(econ.cacheCost)}.`);
+}
+
+function buildHive() {
+  if (!econ.has('rake')) return toast('Beehives need the Rake first.');
+  const p = placement();
+  if (!p || !afford(econ.hiveCost, econ.pollen, 'A beehive ✿')) return;
+  econ.pollen -= econ.hiveCost;
+  econ.hivesBuilt++;
+  apiary.build(p[0], p[1]);
+  let msg = `Beehive built! Bees forage blooms within ${HIVE.radius}m. Next hive ✿ ${fmt(econ.hiveCost)}.`;
+  if (econ.bears === 0) {
+    econ.bears = 1;
+    apiary.syncBears();
+    msg = 'Beehive built! A bear has moved into the den to carry the honey home.';
+  }
+  built(p[0], p[1], 0xffb627, msg);
+}
+
+function buildRing() {
+  if (!econ.has('hive')) return toast('Fairy rings cost honey. Build a Beehive (H) first.');
+  const p = placement();
+  if (!p || !afford(econ.ringCost, econ.honey, 'A fairy ring ⬢')) return;
+  econ.honey -= econ.ringCost;
+  econ.ringsBuilt++;
+  fairies.build(p[0], p[1]);
+  built(
+    p[0],
+    p[1],
+    0xe0b8ff,
+    `Fairy ring built! Its fairies plant everything within ${econ.ringRadius}m. Next ring ⬢ ${fmt(econ.ringCost)}.`,
+  );
 }
 
 // ---------- input ----------
@@ -266,7 +356,11 @@ function openShop(open: boolean) {
 
 function saveNow() {
   if (skipSave) return;
-  const extra: SaveExtra = { caches: stations.caches.map((c) => ({ x: c.x, z: c.z, stock: c.stock })) };
+  const extra: SaveExtra = {
+    caches: stations.caches.map((c) => ({ x: c.x, z: c.z, stock: c.stock })),
+    hives: apiary.hives.map((h) => ({ x: h.x, z: h.z, honey: h.honey })),
+    rings: fairies.rings.map((r) => ({ x: r.x, z: r.z })),
+  };
   garden.save(player, extra);
 }
 
@@ -309,6 +403,8 @@ addEventListener('keydown', (e) => {
   if (shopOpen) return;
   if (e.code.startsWith('Digit')) selectSlot(Number(e.code.slice(5)) - 1);
   if (e.code === 'KeyB') buildCache();
+  if (e.code === 'KeyH') buildHive();
+  if (e.code === 'KeyR') buildRing();
   if (e.code === 'KeyF') {
     econ.autoPlant = !econ.autoPlant;
     toast(econ.autoPlant ? 'Mount auto-planting on' : 'Mount auto-planting off');
@@ -365,12 +461,24 @@ function frame() {
   const src = stations.nearby(player.pos);
   let stationText = '';
   if (src?.kind === 'hollow') {
-    econ.refill(400 * dt);
+    econ.refill(1500 * dt);
     stationText = 'Seed Hollow · refilling';
   } else if (src?.kind === 'cache') {
-    const used = econ.refill(Math.min(src.cache.stock, 120 * dt));
+    const used = econ.refill(Math.min(src.cache.stock, 1000 * dt));
     src.cache.stock -= used;
     stationText = `${src.cache.label} · ${Math.floor(src.cache.stock)} / ${econ.cacheStockCap} seeds · ${econ.squirrelsPerCache} squirrel${econ.squirrelsPerCache > 1 ? 's' : ''}`;
+  }
+  if (!src) {
+    const ap = apiary.nearby(player.pos);
+    const ring = fairies.nearby(player.pos);
+    if (ap?.kind === 'den') {
+      stationText = `Bear Den · ${econ.bears} bear${econ.bears === 1 ? '' : 's'} · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
+    } else if (ap?.kind === 'hive') {
+      const h = ap.hive;
+      stationText = `${h.label} · ${Math.floor(h.honey)} / ${fmt(econ.hiveCap)} honey · ${h.flowers} flowers in reach · ${apiary.rateOf(h).toFixed(2)}/s`;
+    } else if (ring) {
+      stationText = `${ring.label} · ${ring.fairies.length} fairies · ${fmt(ring.left)} tiles left to plant`;
+    }
   }
   const full = econ.seeds >= econ.seedCap && (!mount || (econ.mountSeeds[mount.id] ?? 0) >= econ.mountCap(mount));
   if (src && full && !wasFull) chimes.purchase();
@@ -378,6 +486,14 @@ function frame() {
 
   garden.update(dt, time);
   stations.update(dt, time, player.pos);
+  apiary.update(dt, time, player.pos, (n) => {
+    econ.addHoney(n);
+    const el = $('honey');
+    el.classList.remove('pulse');
+    void el.offsetWidth;
+    el.classList.add('pulse');
+  });
+  fairies.update(dt, time, player.pos);
   hearts.update(time);
   particles.update(dt, time);
   world.flush();
@@ -388,6 +504,8 @@ function frame() {
   if (hudTimer <= 0) {
     hudTimer = 0.1;
     $('pollen-n').textContent = fmt(econ.pollen);
+    $('honey').classList.toggle('hidden', !econ.has('hive'));
+    $('honey-n').textContent = fmt(econ.honey);
     $('mult').textContent = `pollen ×${econ.multiplier.toFixed(1)}`;
     $('seeds-n').textContent = fmt(econ.seeds);
     $('seeds-cap').textContent = fmt(econ.seedCap);
@@ -415,7 +533,10 @@ function frame() {
     } else if (mouseDown || ['locked', 'creek', 'empty'].includes(garden.aimStatus)) hint = garden.aimHint();
     $('hint').textContent = hint;
     $('crosshair').style.display = !mount && (player.firstPerson || player.zoom < 12) ? 'block' : 'none';
-    if (shopOpen) $('shop-pollen').textContent = fmt(econ.pollen);
+    if (shopOpen) {
+      $('shop-pollen').textContent = fmt(econ.pollen);
+      $('shop-honey').textContent = fmt(econ.honey);
+    }
   }
   if (toastTimer > 0) {
     toastTimer -= dt;
@@ -444,6 +565,10 @@ frame();
   Soil,
   selectSlot,
   buildCache,
+  buildHive,
+  buildRing,
+  apiary,
+  fairies,
   get mouseDown() {
     return mouseDown;
   },
