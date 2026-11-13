@@ -797,7 +797,7 @@ function frame() {
       stationText = `${ring.label} · ${ring.fairies.length} fairies · ${fmt(ring.left)} tiles left to plant`;
     }
   }
-  const full = econ.seeds >= econ.seedCap && (!mount || (econ.mountSeeds[mount.id] ?? 0) >= econ.mountCap(mount));
+  const full = econ.allSeedsFull;
   if ((src || waystones.nearby(player.pos)) && full && !wasFull) chimes.purchase();
   wasFull = full;
 

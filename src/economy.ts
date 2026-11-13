@@ -440,21 +440,32 @@ export class Economy {
     return true;
   }
 
-  /** Top up the satchel (and the current mount) from a source. Returns seeds used. */
+  /** Mounts in refill order: the one being ridden first, then the rest. */
+  private get ownedMounts(): MountDef[] {
+    const owned = MOUNTS.filter((m) => this.mounts.has(m.id));
+    return owned.sort((a, b) => Number(b.id === this.riding) - Number(a.id === this.riding));
+  }
+
+  /** Top up the satchel and every owned mount's seed bag (ridden or not). Returns seeds used. */
   refill(available: number): number {
     let used = 0;
-    const need = Math.max(0, this.seedCap - this.seeds);
-    const a = Math.min(need, available);
+    const a = Math.min(Math.max(0, this.seedCap - this.seeds), available);
     this.seeds += a;
     used += a;
-    const m = this.mount;
-    if (m) {
-      const mNeed = Math.max(0, this.mountCap(m) - (this.mountSeeds[m.id] ?? 0));
-      const b = Math.min(mNeed, available - used);
-      this.mountSeeds[m.id] = (this.mountSeeds[m.id] ?? 0) + b;
+    for (const m of this.ownedMounts) {
+      const have = this.mountSeeds[m.id] ?? 0;
+      const b = Math.min(Math.max(0, this.mountCap(m) - have), available - used);
+      this.mountSeeds[m.id] = have + b;
       used += b;
     }
     return used;
+  }
+
+  /** Satchel and every mount's bag are full. */
+  get allSeedsFull() {
+    return (
+      this.seeds >= this.seedCap && this.ownedMounts.every((m) => (this.mountSeeds[m.id] ?? 0) >= this.mountCap(m))
+    );
   }
 
   // ---------- squirrels ----------

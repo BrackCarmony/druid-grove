@@ -37,7 +37,7 @@ npm run typecheck
 - Tools: **Tweezers** (one tile) → **Garden Glove** (small patch) → **Rake** (wide swath).
 - **Seeds are limited.** Each planted tile uses one seed from your satchel. Refill at the glowing **Seed Hollow** near the start. Bigger Satchel upgrades raise the cap.
 - **Squirrel caches** (B menu) are seed stations you place out in the world. Their squirrels run back and forth to the nearest seed hub (the Hollow or a waystone), so a cache far from any hub refills more slowly. The Family, Cheeks and Paws upgrades scale them up.
-- **Mounts** (after the rake): the Mossback Tortoise and the Bramble Stag auto-plant a wide circle around themselves and carry their own large seed supply (Saddlebags upgrade).
+- **Mounts** (after the rake): the Mossback Tortoise and the Bramble Stag auto-plant a wide circle around themselves and carry their own large seed supply (Saddlebags upgrade). Every mount you own refills at seed spots, ridden or not.
 - Nimble Fingers also boosts mounts (+10% per level): a maxed Bramble Stag plants clay at a full gallop; stone still needs a slower pace.
 - **Beehives** (H) make honey from the bloomed tiles within 22m. Only one hive per glade, so they spread out across the land. **Bears** walk from their Bear Den to a full hive and carry the honey back. There's a den at home, and more can be built (40m apart), each arriving with a bear. The first bear comes with the first hive; hired bears move into the den with the most hives per bear.
 - **Waystones** (from the B menu) are standing-stone arches and your outposts: stand in one and press T to travel to any other, and they're bottomless seed hubs like the Seed Hollow. Squirrels run to the nearest hub (Hollow or waystone), and fairies restock at hubs too. There's one at home.
