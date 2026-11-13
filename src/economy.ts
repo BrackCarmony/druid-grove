@@ -214,6 +214,16 @@ export const UPGRADES: UpgradeDef[] = [
     requires: 'rake',
   },
   {
+    id: 'trample',
+    group: 'soil',
+    name: 'Stonebreaker Hooves',
+    blurb: () => 'The Bramble Stag shatters boulders in its path instead of stopping at them.',
+    baseCost: 10_000_000,
+    growth: 1,
+    max: 1,
+    requires: 'stag',
+  },
+  {
     id: 'clover',
     group: 'hives',
     name: 'Clover Nectar',

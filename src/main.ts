@@ -59,6 +59,19 @@ scene.add(particles.points);
 const econ = new Economy();
 const chimes = new Chimes();
 const player = new Player(world, camera, colliders);
+// Stonebreaker Hooves: the stag smashes boulders instead of stopping at them.
+let lastCrunch = 0;
+player.trample = (x, z, r) => {
+  if (econ.riding !== 'stag' || !econ.level('trample')) return;
+  scenery.trample(x, z, r + 0.25, (rx, ry, rz, size) => {
+    particles.burst(rx, ry, rz, 0x8a8590, 8 + Math.round(size * 10), 0.5 + size, 2.2);
+    const now = performance.now();
+    if (now - lastCrunch > 90) {
+      lastCrunch = now;
+      chimes.crunch();
+    }
+  });
+};
 scene.add(player.model);
 const stations = new Stations(world, econ, colliders);
 scene.add(stations.group);
@@ -97,6 +110,7 @@ interface SaveExtra {
   dens?: { x: number; z: number }[]; // beyond the home den
   bearHomes?: number[];
   stones?: { x: number; z: number }[]; // beyond the home waystone
+  trampled?: number[]; // tiles whose boulder the stag smashed
 }
 const loaded = garden.load(player);
 const loadedExtra = loaded?.extra as SaveExtra | undefined;
@@ -107,6 +121,7 @@ if (loadedExtra) {
   for (const h of extra.hives ?? []) apiary.build(h.x, h.z, h.honey);
   for (const r of extra.rings ?? []) fairies.build(r.x, r.z);
   for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
+  for (const t of extra.trampled ?? []) scenery.smash(t);
 }
 apiary.syncBears(loadedExtra?.bearHomes);
 fairies.syncFairies(); // wayfarers
@@ -694,6 +709,7 @@ function saveNow() {
     dens: apiary.dens.slice(1).map((d) => ({ x: d.x, z: d.z })),
     bearHomes: apiary.bearHomes(),
     stones: waystones.stones.slice(1).map((w) => ({ x: w.x, z: w.z })),
+    trampled: [...scenery.trampled],
   };
   garden.save(player, extra);
 }
@@ -980,6 +996,7 @@ frame();
   waystones,
   travel,
   perf,
+  scenery,
   buildDen,
   buildStone,
   get mouseDown() {

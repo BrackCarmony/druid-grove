@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Circle, Colliders } from './colliders';
 import { mulberry32 } from './noise';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Glade, Soil, SIZE, wdist, World } from './world';
+import { Glade, HALF, Soil, SIZE, tileIndex, wdist, World } from './world';
 
 // Scenery: dead stumps and boulders on the wasteland, the dormant heart-seed in
 // each glade, and the heart tree that grows when a glade is restored.
@@ -15,11 +15,43 @@ export class DeadScenery {
 
   private stumpCollider = new Map<number, Circle>();
 
+  private rocks!: THREE.InstancedMesh;
+  // tile -> boulder on it (at most one per tile)
+  private rockAt = new Map<number, { i: number; x: number; y: number; z: number; r: number; c: Circle | null }>();
+  /** Tiles whose boulder has been trampled to gravel (saved). */
+  trampled = new Set<number>();
+
   constructor(
     world: World,
     private colliders: Colliders,
   ) {
     this.build(world);
+  }
+
+  /** Smash every boulder overlapping a circle. Calls onSmash for each one broken. */
+  trample(x: number, z: number, r: number, onSmash: (x: number, y: number, z: number, size: number) => void) {
+    const ci = Math.floor(x + HALF);
+    const cj = Math.floor(z + HALF);
+    const ri = Math.ceil(r + 1);
+    for (let j = cj - ri; j <= cj + ri; j++) {
+      for (let i = ci - ri; i <= ci + ri; i++) {
+        const t = tileIndex(i, j);
+        const rock = this.rockAt.get(t);
+        if (!rock || wdist(x, z, rock.x, rock.z) > r + rock.r) continue;
+        this.smash(t);
+        onSmash(rock.x, rock.y, rock.z, rock.r);
+      }
+    }
+  }
+
+  smash(t: number) {
+    const rock = this.rockAt.get(t);
+    if (!rock) return;
+    this.rocks.setMatrixAt(rock.i, this.zero);
+    this.rocks.instanceMatrix.needsUpdate = true;
+    if (rock.c) this.colliders.remove(rock.c);
+    this.rockAt.delete(t);
+    this.trampled.add(t);
   }
 
   /** Dead stumps crumble away once their tile blooms. */
@@ -73,8 +105,9 @@ export class DeadScenery {
         const sc = 0.4 + rng() * (soil === Soil.Stone ? 1.6 : 0.7);
         s.set(sc, sc * (0.5 + rng() * 0.4), sc);
         p.set(ox, y + sc * 0.1, oz);
+        const c = sc > 0.45 ? this.colliders.add(ox, oz, sc * 0.5) : null;
+        this.rockAt.set(t, { i: nr, x: ox, y: y + sc * 0.3, z: oz, r: sc * 0.5, c });
         rocks.setMatrixAt(nr++, m.compose(p, q, s));
-        if (sc > 0.45) this.colliders.add(ox, oz, sc * 0.5);
       } else if (r > 0.993 && soil !== Soil.Stone && ns < stumps.count) {
         e.set((rng() - 0.5) * 0.3, rng() * 6, (rng() - 0.5) * 0.3);
         q.setFromEuler(e);
@@ -90,6 +123,7 @@ export class DeadScenery {
     rocks.count = nr;
     g.add(stumps, rocks);
     this.stumps = stumps;
+    this.rocks = rocks;
   }
 }
 

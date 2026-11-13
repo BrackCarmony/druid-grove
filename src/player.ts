@@ -24,6 +24,8 @@ export class Player {
   model: THREE.Group;
   viewmodel: THREE.Group;
   mount: MountDef | null = null;
+  /** Called with the body circle each step before collisions, so a mount can break things in its way. */
+  trample: ((x: number, z: number, r: number) => void) | null = null;
   private nymph: THREE.Group;
   private mountHolder = new THREE.Group();
   private mountModels = new Map<MountId, MountModel>();
@@ -115,6 +117,7 @@ export class Player {
     this.vel.y -= 14 * dt;
     const before = this.pos.clone();
     this.pos.addScaledVector(this.vel, dt);
+    if (mount && this.trample) this.trample(this.pos.x, this.pos.z, mount.bodyRadius);
     this.colliders.resolve(this.pos, mount ? mount.bodyRadius : BODY_RADIUS);
     // Velocity reflects what actually happened, so sliding along rocks feels right.
     // (Capped at the pre-collision speed so being pushed out of something never flings you.)

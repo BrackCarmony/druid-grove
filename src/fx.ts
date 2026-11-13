@@ -146,6 +146,12 @@ export class Chimes {
     [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => setTimeout(() => this.note(s, 1.2, 0.2), i * 110));
   }
 
+  /** A boulder shattering under hooves: low, gravelly thud. */
+  crunch() {
+    this.note(-31 + Math.random() * 3, 0.18, 0.16, 'square');
+    this.note(-19 + Math.random() * 4, 0.09, 0.07, 'sawtooth');
+  }
+
   deny() {
     this.note(-12, 0.15, 0.1, 'square');
   }
