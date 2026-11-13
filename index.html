@@ -25,6 +25,8 @@
       </div>
       <div id="station"></div>
 
+      <div id="compass"><div id="compass-strip"></div></div>
+
       <div id="glade-box">
         <div id="glade-name">Heartseed Glade</div>
         <div id="glade-meta"><span id="glade-soil">Dirt</span> · <span id="glade-pct">0%</span></div>
@@ -38,10 +40,15 @@
       <div id="hint"></div>
       <div id="toast"></div>
       <div id="hotbar"></div>
+      <div id="build" class="hidden">
+        <div class="build-head">Build at the cursor <span class="dim">· B / Esc to close</span></div>
+        <div id="build-list"></div>
+      </div>
+      <div id="flash"></div>
       <div id="keys">
         <b>WASD</b> move · <b>Shift</b> run · <b>Space</b> hop · <b>Hold click</b> plant · <b>Scroll</b> zoom ·
-        <b>1-5</b> tools &amp; mounts · <b>B</b> cache · <b>H</b> hive · <b>R</b> fairy ring · <b>G</b> rings ·
-        <b>F</b> auto-plant · <b>E</b> shop
+        <b>1-5</b> tools &amp; mounts · <b>B</b> build · <b>T</b> travel · <b>G</b> rings · <b>F</b> auto-plant ·
+        <b>E</b> shop
       </div>
     </div>
 
@@ -83,6 +90,20 @@
       </div>
     </div>
 
+    <div id="travel" class="hidden">
+      <div class="shop-inner">
+        <div class="shop-head">
+          <h2>Waystones</h2>
+        </div>
+        <p class="small dim">Step through to any waystone on the planet. Build more from the B menu.</p>
+        <div id="travel-list"></div>
+        <div class="shop-foot">
+          <span></span>
+          <span>Press <b>Esc</b> to close</span>
+        </div>
+      </div>
+    </div>
+
     <div id="rings" class="hidden">
       <div class="shop-inner">
         <div class="shop-head">
@@ -104,8 +125,8 @@
       <div class="start-inner">
         <h1>Druid Grove</h1>
         <p>
-          The moon broke and the world went grey. You are the last wood nymph,<br />and you have a pocketful of seeds
-          and a pair of tweezers.<br />When your satchel runs dry, head back to the glowing Seed Hollow.
+          The moon broke and the whole planet went grey. You are the last wood nymph,<br />and you have a pocketful of
+          seeds and a pair of tweezers.<br />When your satchel runs dry, head back to the glowing Seed Hollow.
         </p>
         <button id="play">Begin planting</button>
         <p class="small">Click to capture the mouse. Esc releases it.</p>

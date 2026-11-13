@@ -2,15 +2,16 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Colliders } from './colliders';
 import { Economy, HIVE } from './economy';
-import { HALF, SIZE, World } from './world';
+import { HALF, tileIndex, wdist, World, wrap } from './world';
 
 // The production branch: beehives make honey from the blooms around them, and
-// bears lumber between the hives and the Bear Den carrying it home. Honey is the
-// currency for fairy rings.
+// bears lumber between the hives and their Bear Den carrying it home. There's a den
+// at home and more can be built further out. Honey is the currency for fairy rings.
 
 const DEN_RANGE = 4.5;
 const HIVE_RANGE = 3;
 const MIN_SPACING = 8;
+const DEN_SPACING = 40;
 const BEES_PER_HIVE = 14;
 const MAX_BEES = 2048;
 const BEE_DRAW_DIST = 140;
@@ -175,7 +176,15 @@ export interface Hive {
   label: string;
 }
 
+export interface Den {
+  x: number;
+  z: number;
+  obj: THREE.Group;
+  label: string;
+}
+
 interface Bear {
+  den: Den;
   mesh: THREE.Mesh;
   state: 'home' | 'out' | 'back';
   hive: Hive | null;
@@ -196,7 +205,7 @@ interface Bee {
 
 export class Apiary {
   group = new THREE.Group();
-  den = new THREE.Vector3();
+  dens: Den[] = [];
   hives: Hive[] = [];
   bears: Bear[] = [];
   private bees: Bee[][] = [];
@@ -215,14 +224,7 @@ export class Apiary {
     private econ: Economy,
     private colliders: Colliders,
   ) {
-    const dx = -8;
-    const dz = 5;
-    this.den.set(dx, world.heightAt(dx, dz), dz);
-    const den = denModel();
-    den.position.copy(this.den);
-    den.rotation.y = 0.5;
-    this.group.add(den);
-    colliders.add(dx, dz, 2.2);
+    this.buildDen(-8, 5, 'Bear Den · home');
 
     this.beeMesh = new THREE.InstancedMesh(
       beeGeometry(),
@@ -232,6 +234,40 @@ export class Apiary {
     this.beeMesh.frustumCulled = false;
     this.beeMesh.count = 0;
     this.group.add(this.beeMesh);
+  }
+
+  get home() {
+    return this.dens[0];
+  }
+
+  buildDen(x: number, z: number, label?: string): Den {
+    const obj = denModel();
+    obj.position.set(x, this.world.heightAt(x, z), z);
+    obj.rotation.y = this.dens.length ? Math.atan2(-x, -z) : 0.5; // mouth toward home
+    this.group.add(obj);
+    this.colliders.add(x, z, 2.2);
+    const den: Den = { x, z, obj, label: label ?? `Bear Den · ${this.world.glades[this.gladeAt(x, z)].name}` };
+    this.dens.push(den);
+    return den;
+  }
+
+  /** The den nearest a spot, the short way round. */
+  nearestDen(x: number, z: number) {
+    let best = this.dens[0];
+    let bd = Infinity;
+    for (const d of this.dens) {
+      const dist = wdist(d.x, d.z, x, z);
+      if (dist < bd) {
+        bd = dist;
+        best = d;
+      }
+    }
+    return { den: best, dist: bd };
+  }
+
+  denBlockedAt(x: number, z: number): string | null {
+    const { den, dist } = this.nearestDen(x, z);
+    return dist < DEN_SPACING ? `Too close to ${den.label.replace('Bear Den · ', 'the den at ')}` : null;
   }
 
   /** One hive per glade, so hives get spread across the land instead of crowding the den. */
@@ -248,9 +284,9 @@ export class Apiary {
   }
 
   canBuildAt(x: number, z: number): string | null {
-    if (Math.hypot(x - this.den.x, z - this.den.z) < MIN_SPACING + 2) return 'Too close to the Bear Den';
+    for (const d of this.dens) if (wdist(d.x, d.z, x, z) < MIN_SPACING + 2) return 'Too close to a Bear Den';
     for (const h of this.hives) {
-      if (Math.hypot(x - h.x, z - h.z) < MIN_SPACING) return 'Too close to another hive';
+      if (wdist(h.x, h.z, x, z) < MIN_SPACING) return 'Too close to another hive';
     }
     return null;
   }
@@ -258,7 +294,8 @@ export class Apiary {
   build(x: number, z: number, honey = 0): Hive {
     const obj = hiveModel();
     obj.position.set(x, this.world.heightAt(x, z), z);
-    obj.rotation.y = Math.atan2(this.den.x - x, this.den.z - z);
+    const near = this.nearestDen(x, z).den;
+    obj.rotation.y = Math.atan2(wrap(near.x - x), wrap(near.z - z));
     this.group.add(obj);
     this.colliders.add(x, z, 0.75);
     const hive: Hive = {
@@ -288,18 +325,38 @@ export class Apiary {
     return hive;
   }
 
-  /** Spawn bear meshes so there's one per bear the player owns. */
-  syncBears() {
+  /** The den that most needs another bear: most nearby hives per bear. */
+  private neediestDen() {
+    let best = this.dens[0];
+    let bestScore = -1;
+    for (const d of this.dens) {
+      const hives = this.hives.filter((h) => this.nearestDen(h.x, h.z).den === d).length;
+      const bears = this.bears.filter((b) => b.den === d).length;
+      const score = hives / (bears + 1);
+      if (score > bestScore) {
+        bestScore = score;
+        best = d;
+      }
+    }
+    return best;
+  }
+
+  /** Spawn bear meshes so there's one per bear the player owns. `homes` restores saved den assignments. */
+  syncBears(homes: number[] = [], prefer?: Den) {
     while (this.bears.length < this.econ.bears) {
+      const saved = homes[this.bears.length];
+      const den = prefer ?? (saved !== undefined ? this.dens[saved] : undefined) ?? this.neediestDen();
+      prefer = undefined;
       const mesh = new THREE.Mesh(this.bearGeo, this.bearMat);
       const a = Math.random() * Math.PI * 2;
       const b: Bear = {
+        den,
         mesh,
         state: 'home',
         hive: null,
         carry: 0,
-        x: this.den.x + Math.cos(a) * 3,
-        z: this.den.z + Math.sin(a) * 3 + 2,
+        x: den.x + Math.cos(a) * 3,
+        z: den.z + Math.sin(a) * 3 + 2,
         wander: Math.random() * 10,
         phase: Math.random() * 10,
       };
@@ -308,15 +365,24 @@ export class Apiary {
     }
   }
 
+  /** Den index of each bear, for saving. */
+  bearHomes() {
+    return this.bears.map((b) => this.dens.indexOf(b.den));
+  }
+
+  bearsAt(d: Den) {
+    return this.bears.filter((b) => b.den === d).length;
+  }
+
   private countFlowers(h: Hive) {
     const w = this.world;
     const r = HIVE.radius;
     const ci = Math.floor(h.x + HALF);
     const cj = Math.floor(h.z + HALF);
     let n = 0;
-    for (let j = Math.max(0, cj - r); j <= Math.min(SIZE - 1, cj + r); j++) {
-      for (let i = Math.max(0, ci - r); i <= Math.min(SIZE - 1, ci + r); i++) {
-        const t = j * SIZE + i;
+    for (let j = cj - r; j <= cj + r; j++) {
+      for (let i = ci - r; i <= ci + r; i++) {
+        const t = tileIndex(i, j);
         if (!w.bloomed[t]) continue;
         const dx = i - ci;
         const dz = j - cj;
@@ -337,15 +403,15 @@ export class Apiary {
     return r;
   }
 
-  nearby(pos: THREE.Vector3): { kind: 'den' } | { kind: 'hive'; hive: Hive } | null {
-    if (Math.hypot(pos.x - this.den.x, pos.z - this.den.z) < DEN_RANGE) return { kind: 'den' };
+  nearby(pos: THREE.Vector3): { kind: 'den'; den: Den } | { kind: 'hive'; hive: Hive } | null {
+    for (const d of this.dens) if (wdist(d.x, d.z, pos.x, pos.z) < DEN_RANGE) return { kind: 'den', den: d };
     for (const h of this.hives) {
-      if (Math.hypot(pos.x - h.x, pos.z - h.z) < HIVE_RANGE) return { kind: 'hive', hive: h };
+      if (wdist(h.x, h.z, pos.x, pos.z) < HIVE_RANGE) return { kind: 'hive', hive: h };
     }
     return null;
   }
 
-  private pickHive(): Hive | null {
+  private pickHive(den: Den): Hive | null {
     const carry = this.econ.bearCarry;
     let best: Hive | null = null;
     let bestScore = 0;
@@ -353,7 +419,7 @@ export class Apiary {
       const avail = h.honey - h.reserved;
       // Worth the walk once there's a decent potful, or the hive is about to overflow.
       if (avail < Math.min(carry * 0.6, this.econ.hiveCap * 0.5)) continue;
-      const d = Math.hypot(h.x - this.den.x, h.z - this.den.z);
+      const d = wdist(den.x, den.z, h.x, h.z);
       const score = Math.min(avail, carry) / (20 + d);
       if (score > bestScore) {
         bestScore = score;
@@ -386,7 +452,7 @@ export class Apiary {
       let tz = b.z;
       let moving = false;
       if (b.state === 'home') {
-        const h = this.pickHive();
+        const h = this.pickHive(b.den);
         if (h) {
           b.hive = h;
           const take = Math.min(carry, h.honey - h.reserved);
@@ -396,16 +462,16 @@ export class Apiary {
         } else {
           // mooch around in front of the den
           b.wander += dt * 0.3;
-          tx = this.den.x + Math.cos(b.wander + b.phase) * 3.5;
-          tz = this.den.z + 3.5 + Math.sin(b.wander * 1.3 + b.phase) * 1.5;
-          moving = Math.hypot(tx - b.x, tz - b.z) > 0.3;
+          tx = b.den.x + Math.cos(b.wander + b.phase) * 3.5;
+          tz = b.den.z + 3.5 + Math.sin(b.wander * 1.3 + b.phase) * 1.5;
+          moving = wdist(b.x, b.z, tx, tz) > 0.3;
         }
       }
       if (b.state === 'out' && b.hive) {
         tx = b.hive.x;
         tz = b.hive.z;
         moving = true;
-        if (Math.hypot(tx - b.x, tz - b.z) < 1.4) {
+        if (wdist(b.x, b.z, tx, tz) < 1.4) {
           const h = b.hive;
           h.reserved = Math.max(0, h.reserved - b.carry);
           b.carry = Math.min(carry, h.honey);
@@ -415,10 +481,10 @@ export class Apiary {
         }
       }
       if (b.state === 'back') {
-        tx = this.den.x;
-        tz = this.den.z + 2.6;
+        tx = b.den.x;
+        tz = b.den.z + 2.6;
         moving = true;
-        if (Math.hypot(tx - b.x, tz - b.z) < 1.2) {
+        if (wdist(b.x, b.z, tx, tz) < 1.2) {
           if (b.carry > 0) onDeliver(b.carry);
           b.carry = 0;
           b.hive = null;
@@ -426,8 +492,8 @@ export class Apiary {
           b.mesh.geometry = this.bearGeo;
         }
       }
-      const dx = tx - b.x;
-      const dz = tz - b.z;
+      const dx = wrap(tx - b.x); // the short way round
+      const dz = wrap(tz - b.z);
       const d = Math.hypot(dx, dz);
       const sp = b.state === 'home' ? 1.2 : speed;
       if (moving && d > 0.01) {
@@ -436,11 +502,13 @@ export class Apiary {
         b.z += (dz / d) * step;
         b.mesh.rotation.y = Math.atan2(dx, dz);
         b.phase += dt * sp * 2.2;
+        b.x = wrap(b.x);
+        b.z = wrap(b.z);
       }
       const waddle = moving ? Math.sin(b.phase) : 0;
       b.mesh.position.set(b.x, this.world.heightAt(b.x, b.z) + Math.abs(waddle) * 0.12, b.z);
       b.mesh.rotation.z = waddle * 0.12;
-      b.mesh.visible = Math.hypot(b.x - playerPos.x, b.z - playerPos.z) < 260;
+      b.mesh.visible = wdist(playerPos.x, playerPos.z, b.x, b.z) < 260;
     }
 
     this.updateBees(dt, time, playerPos);
@@ -450,7 +518,7 @@ export class Apiary {
     let n = 0;
     for (let k = 0; k < this.hives.length; k++) {
       const h = this.hives[k];
-      const near = Math.hypot(h.x - playerPos.x, h.z - playerPos.z) < BEE_DRAW_DIST;
+      const near = wdist(playerPos.x, playerPos.z, h.x, h.z) < BEE_DRAW_DIST;
       // With nothing in bloom the bees just buzz around the hive.
       const reach = Math.min(1, h.flowers / 300);
       for (const bee of this.bees[k]) {

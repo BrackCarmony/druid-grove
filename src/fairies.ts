@@ -3,7 +3,7 @@ import { Economy } from './economy';
 import { Particles } from './fx';
 import { Garden, SeedPool } from './garden';
 import { Cache, Stations } from './stations';
-import { HALF, SIZE, Soil, World } from './world';
+import { HALF, Soil, tileIndex, wdist, World, wrap } from './world';
 
 // Planter fairies: bought with honey, they live in fairy rings the player places.
 // Each fairy fetches seeds from the nearest Seed Hollow or squirrel cache, flies
@@ -141,7 +141,7 @@ export class FairyRings {
 
   canBuildAt(x: number, z: number): string | null {
     for (const r of this.rings) {
-      if (Math.hypot(x - r.x, z - r.z) < MIN_SPACING) return 'Too close to another fairy ring';
+      if (wdist(r.x, r.z, x, z) < MIN_SPACING) return 'Too close to another fairy ring';
     }
     return null;
   }
@@ -222,7 +222,7 @@ export class FairyRings {
   }
 
   nearby(pos: THREE.Vector3): Ring | null {
-    for (const r of this.rings) if (Math.hypot(pos.x - r.x, pos.z - r.z) < RING_RANGE) return r;
+    for (const r of this.rings) if (wdist(r.x, r.z, pos.x, pos.z) < RING_RANGE) return r;
     return null;
   }
 
@@ -239,12 +239,12 @@ export class FairyRings {
     const w = this.world;
     let n = 0;
     let locked = 0;
-    for (let j = Math.max(0, cj - R); j <= Math.min(SIZE - 1, cj + R); j++) {
-      for (let i = Math.max(0, ci - R); i <= Math.min(SIZE - 1, ci + R); i++) {
+    for (let j = cj - R; j <= cj + R; j++) {
+      for (let i = ci - R; i <= ci + R; i++) {
         const dx = i - ci;
         const dz = j - cj;
         if (dx * dx + dz * dz > R * R) continue;
-        const t = j * SIZE + i;
+        const t = tileIndex(i, j);
         if (!w.isPlantable(t)) continue;
         if (this.econ.canWork(w.soil[t] as Soil)) n++;
         else locked++;
@@ -259,19 +259,20 @@ export class FairyRings {
     const R = this.econ.ringRadius;
     const ri = Math.floor(r.x + HALF);
     const rj = Math.floor(r.z + HALF);
-    const i0 = Math.max(0, ri - R);
-    const i1 = Math.min(SIZE - 1, ri + R);
-    const j0 = Math.max(0, rj - R);
-    const j1 = Math.min(SIZE - 1, rj + R);
-    const ci = Math.min(i1, Math.max(i0, Math.floor(x + HALF)));
-    const cj = Math.min(j1, Math.max(j0, Math.floor(z + HALF)));
+    // Work in tile coordinates around the ring (unwrapped), indexing with wrap.
+    const i0 = ri - R;
+    const i1 = ri + R;
+    const j0 = rj - R;
+    const j1 = rj + R;
+    const ci = Math.min(i1, Math.max(i0, ri + Math.round(wrap(x - r.x))));
+    const cj = Math.min(j1, Math.max(j0, rj + Math.round(wrap(z - r.z))));
     const maxK = Math.max(ci - i0, i1 - ci, cj - j0, rj + R - cj);
     const test = (i: number, j: number) => {
       if (i < i0 || i > i1 || j < j0 || j > j1) return -1;
       const dx = i - ri;
       const dz = j - rj;
       if (dx * dx + dz * dz > R * R) return -1;
-      const t = j * SIZE + i;
+      const t = tileIndex(i, j);
       return !this.claimed.has(t) && this.plantable(t) ? t : -1;
     };
     // Expanding square rings around the fairy; the first hit is close enough to nearest.
@@ -299,10 +300,10 @@ export class FairyRings {
       z: h.z,
       cache: null,
     };
-    let bestD = Math.hypot(x - h.x, z - h.z);
+    let bestD = wdist(h.x, h.z, x, z);
     for (const c of this.stations.caches) {
       if (c.stock < 5) continue;
-      const d = Math.hypot(x - c.x, z - c.z);
+      const d = wdist(c.x, c.z, x, z);
       if (d < bestD) {
         bestD = d;
         best = { x: c.x, z: c.z, cache: c };
@@ -318,14 +319,14 @@ export class FairyRings {
 
   /** Fly toward (x, z); returns true on arrival. */
   private flyTo(f: Fairy, x: number, z: number, dt: number, height: number) {
-    const dx = x - f.pos.x;
-    const dz = z - f.pos.z;
+    const dx = wrap(x - f.pos.x); // the short way round
+    const dz = wrap(z - f.pos.z);
     const d = Math.hypot(dx, dz);
     const step = this.econ.fairySpeed * dt;
     if (d > 0.05) {
       const k = Math.min(1, step / d);
-      f.pos.x += dx * k;
-      f.pos.z += dz * k;
+      f.pos.x = wrap(f.pos.x + dx * k);
+      f.pos.z = wrap(f.pos.z + dz * k);
     }
     const ground = this.world.heightAt(f.pos.x, f.pos.z);
     const want = ground + (d < 3 ? height : CRUISE);
@@ -409,7 +410,7 @@ export class FairyRings {
         f.sparkle -= dt;
         if (f.sparkle <= 0 && f.state !== 'idle') {
           f.sparkle = 0.12;
-          const near = Math.hypot(f.pos.x - playerPos.x, f.pos.z - playerPos.z) < 80;
+          const near = wdist(playerPos.x, playerPos.z, f.pos.x, f.pos.z) < 80;
           if (near) this.particles.burst(f.pos.x, f.pos.y, f.pos.z, f.hue, 1, 0.1, 0.2);
         }
       }
@@ -422,9 +423,10 @@ export class FairyRings {
     for (const r of this.rings) {
       for (const f of r.fairies) {
         if (n >= MAX_FAIRIES) break;
-        if (Math.hypot(f.pos.x - playerPos.x, f.pos.z - playerPos.z) > DRAW_DIST) continue;
+        if (wdist(playerPos.x, playerPos.z, f.pos.x, f.pos.z) > DRAW_DIST) continue;
         const bob = Math.sin(time * 5 + f.phase) * 0.12;
-        const heading = f.state === 'plant' ? time * 2 + f.phase : Math.atan2(f.tx - f.pos.x, f.tz - f.pos.z);
+        const heading =
+          f.state === 'plant' ? time * 2 + f.phase : Math.atan2(wrap(f.tx - f.pos.x), wrap(f.tz - f.pos.z));
         this.v.set(f.pos.x, f.pos.y + bob, f.pos.z);
         this.m4.makeTranslation(this.v);
         this.bodies.setMatrixAt(n, this.m4);

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { Circle, Colliders } from './colliders';
 import { mulberry32 } from './noise';
-import { Glade, Soil, SIZE, World } from './world';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { Glade, Soil, SIZE, wdist, World } from './world';
 
 // Scenery: dead stumps and boulders on the wasteland, the dormant heart-seed in
 // each glade, and the heart tree that grows when a glade is restored.
@@ -92,93 +93,137 @@ export class DeadScenery {
   }
 }
 
+const TREE_DIST = 330;
+
 export class HeartTrees {
   group = new THREE.Group();
-  private seeds = new Map<number, THREE.Object3D>();
-  private trees = new Map<number, { obj: THREE.Object3D; born: number }>();
-  private seedMat = new THREE.MeshLambertMaterial({ color: 0x9ce07a, emissive: 0x3c8a2a });
-  private beamMat = new THREE.MeshBasicMaterial({
-    color: 0xc8ffb0,
-    transparent: true,
-    opacity: 0.18,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  private cores: THREE.InstancedMesh;
+  private beams: THREE.InstancedMesh;
+  private seedIndex = new Map<number, number>(); // glade -> instance
+  private seedPos: { x: number; y: number; z: number; alive: boolean }[] = [];
+  private trees: { obj: THREE.Mesh; born: number; x: number; z: number; size: number; grown: boolean }[] = [];
+  private treeGeos = new Map<number, THREE.BufferGeometry>();
+  private treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private v = new THREE.Vector3();
+  private s = new THREE.Vector3();
+  private zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
   constructor(
     private world: World,
     private colliders: Colliders,
   ) {
+    const n = world.glades.length;
+    this.cores = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(0.35, 0),
+      new THREE.MeshLambertMaterial({ color: 0x9ce07a, emissive: 0x3c8a2a }),
+      n,
+    );
+    this.beams = new THREE.InstancedMesh(
+      new THREE.CylinderGeometry(0.2, 0.5, 14, 10, 1, true).translate(0, 7, 0),
+      new THREE.MeshBasicMaterial({
+        color: 0xc8ffb0,
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
+      n,
+    );
+    let k = 0;
     for (const g of world.glades) {
       if (g.heartTile < 0) continue;
       const [x, z] = world.tileCenter(g.heartTile);
       const y = world.heightAt(x, z);
-      const seed = new THREE.Group();
-      const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.35, 0), this.seedMat);
-      core.position.y = 0.6;
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.5, 14, 10, 1, true), this.beamMat);
-      beam.position.y = 7;
-      seed.add(core, beam);
-      seed.position.set(x, y, z);
-      this.seeds.set(g.id, seed);
-      this.group.add(seed);
+      this.seedIndex.set(g.id, k);
+      this.seedPos[k] = { x, y, z, alive: true };
+      this.beams.setMatrixAt(k, this.m.makeTranslation(x, y, z));
+      this.cores.setMatrixAt(k, this.m.makeTranslation(x, y + 0.6, z));
+      k++;
     }
+    this.cores.count = this.beams.count = k;
+    this.group.add(this.cores, this.beams);
+  }
+
+  private treeGeometry(g: Glade) {
+    let geo = this.treeGeos.get(g.paletteId);
+    if (geo) return geo;
+    const rng = mulberry32(g.paletteId * 31 + 5);
+    const parts: THREE.BufferGeometry[] = [];
+    const add = (geom: THREE.BufferGeometry, hex: number) => {
+      const gg = geom.index ? geom.toNonIndexed() : geom;
+      gg.deleteAttribute('uv');
+      const c = new THREE.Color(hex);
+      const arr = new Float32Array(gg.attributes.position.count * 3);
+      for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
+      gg.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+      parts.push(gg);
+    };
+    add(new THREE.CylinderGeometry(0.5, 1.1, 7, 8).translate(0, 3.5, 0), 0x6b4a33);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + rng();
+      const br = new THREE.CylinderGeometry(0.15, 0.35, 3.5, 6);
+      br.rotateX(Math.sin(a) * 0.7);
+      br.rotateZ(-Math.cos(a) * 0.7);
+      br.translate(Math.cos(a) * 1.0, 6.5, Math.sin(a) * 1.0);
+      add(br, 0x6b4a33);
+    }
+    for (let i = 0; i < 14; i++) {
+      const r = 1.6 + rng() * 1.6;
+      const a = rng() * Math.PI * 2;
+      const d = rng() * 3.2;
+      const blob = new THREE.IcosahedronGeometry(r, 1).translate(Math.cos(a) * d, 8 + rng() * 3.5, Math.sin(a) * d);
+      add(blob, rng() < 0.35 ? g.palette[0] : 0x5fae4a);
+    }
+    geo = mergeGeometries(parts)!;
+    this.treeGeos.set(g.paletteId, geo);
+    return geo;
   }
 
   complete(g: Glade, time: number, instant = false) {
     if (g.heartTile < 0) return;
-    const seed = this.seeds.get(g.id);
-    if (seed) {
-      this.group.remove(seed);
-      this.seeds.delete(g.id);
+    const k = this.seedIndex.get(g.id);
+    if (k !== undefined && this.seedPos[k].alive) {
+      this.seedPos[k].alive = false;
+      this.cores.setMatrixAt(k, this.zero);
+      this.beams.setMatrixAt(k, this.zero);
+      this.cores.instanceMatrix.needsUpdate = true;
+      this.beams.instanceMatrix.needsUpdate = true;
     }
-    const tree = buildTree(g);
     const [x, z] = this.world.tileCenter(g.heartTile);
+    const tree = new THREE.Mesh(this.treeGeometry(g), this.treeMat);
     tree.position.set(x, this.world.heightAt(x, z) - 0.2, z);
-    tree.scale.setScalar(instant ? 1 : 0.01);
+    tree.rotation.y = (g.id * 2.39996) % (Math.PI * 2);
+    const size = 0.85 + ((g.id * 0.618) % 1) * 0.3;
+    tree.scale.setScalar(instant ? size : 0.01);
+    tree.frustumCulled = false;
     this.group.add(tree);
-    this.colliders.add(tree.position.x, tree.position.z, 1.0);
-    this.trees.set(g.id, { obj: tree, born: instant ? -100 : time });
+    this.colliders.add(x, z, 1.0);
+    this.trees.push({ obj: tree, born: instant ? -100 : time, x, z, size, grown: instant });
   }
 
-  update(time: number) {
-    for (const seed of this.seeds.values()) {
-      const core = seed.children[0];
-      core.rotation.y = time * 0.8;
-      core.position.y = 0.6 + Math.sin(time * 2) * 0.12;
+  update(time: number, cam: THREE.Vector3) {
+    // Bob the nearby seeds.
+    let moved = false;
+    for (let k = 0; k < this.seedPos.length; k++) {
+      const p = this.seedPos[k];
+      if (!p || !p.alive || wdist(p.x, p.z, cam.x, cam.z) > 200) continue;
+      this.q.setFromAxisAngle(this.v.set(0, 1, 0), time * 0.8);
+      this.v.set(p.x, p.y + 0.6 + Math.sin(time * 2 + k) * 0.12, p.z);
+      this.cores.setMatrixAt(k, this.m.compose(this.v, this.q, this.s.set(1, 1, 1)));
+      moved = true;
     }
-    for (const t of this.trees.values()) {
+    if (moved) this.cores.instanceMatrix.needsUpdate = true;
+    for (const t of this.trees) {
+      const vis = wdist(t.x, t.z, cam.x, cam.z) < TREE_DIST;
+      t.obj.visible = vis;
+      if (!vis) continue;
+      if (t.grown) continue;
       const a = THREE.MathUtils.clamp((time - t.born) / 4, 0, 1);
       const s = 1 - Math.pow(1 - a, 3);
-      t.obj.scale.setScalar(Math.max(0.01, s * (1 + 0.08 * Math.sin(a * Math.PI))));
-      t.obj.rotation.y = Math.sin(time * 0.3) * 0.02;
+      t.obj.scale.setScalar(Math.max(0.01, s * (1 + 0.08 * Math.sin(a * Math.PI)) * t.size));
+      if (a >= 1) t.grown = true;
     }
   }
-}
-
-function buildTree(g: Glade): THREE.Group {
-  const rng = mulberry32(g.id * 31 + 5);
-  const tree = new THREE.Group();
-  const bark = new THREE.MeshLambertMaterial({ color: 0x6b4a33 });
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 1.1, 7, 8), bark);
-  trunk.position.y = 3.5;
-  tree.add(trunk);
-  for (let i = 0; i < 4; i++) {
-    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.35, 3.5, 6), bark);
-    const a = (i / 4) * Math.PI * 2 + rng();
-    br.position.set(Math.cos(a) * 1.0, 6.5, Math.sin(a) * 1.0);
-    br.rotation.set(Math.sin(a) * 0.7, 0, -Math.cos(a) * 0.7);
-    tree.add(br);
-  }
-  const leafA = new THREE.MeshLambertMaterial({ color: 0x5fae4a });
-  const blossom = new THREE.MeshLambertMaterial({ color: g.palette[0], emissive: 0x221018 });
-  for (let i = 0; i < 14; i++) {
-    const r = 1.6 + rng() * 1.6;
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), rng() < 0.35 ? blossom : leafA);
-    const a = rng() * Math.PI * 2;
-    const d = rng() * 3.2;
-    blob.position.set(Math.cos(a) * d, 8 + rng() * 3.5, Math.sin(a) * d);
-    tree.add(blob);
-  }
-  return tree;
 }

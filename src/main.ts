@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { planetizeTree } from './planet';
+import { Waystone, Waystones } from './waystones';
 import { FairyRings, Ring } from './fairies';
 import { Chimes, Particles } from './fx';
 import { Flowers } from './flowers';
@@ -11,7 +13,7 @@ import { DeadScenery, HeartTrees } from './props';
 import { createSky } from './sky';
 import { Stations } from './stations';
 import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
-import { SOIL_NAMES, Soil, World } from './world';
+import { SOIL_NAMES, Soil, wdist, World, wrap } from './world';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -33,13 +35,15 @@ scene.add(sun, new THREE.HemisphereLight(0xc7a6d6, 0x5a4636, 1.1));
 
 const world = new World();
 const colliders = new Colliders();
-scene.add(createTerrain(world));
+const terrain = createTerrain(world);
+scene.add(terrain.mesh);
 const sky = createSky();
+sky.userData.noPlanet = true; // the sky stays put around the camera
 scene.add(sky);
 const scenery = new DeadScenery(world, colliders);
 scene.add(scenery.group);
 
-const flowers = new Flowers();
+const flowers = new Flowers(world);
 scene.add(flowers.group);
 const hearts = new HeartTrees(world, colliders);
 scene.add(hearts.group);
@@ -76,20 +80,28 @@ const apiary = new Apiary(world, econ, colliders);
 scene.add(apiary.group);
 const fairies = new FairyRings(world, econ, garden, stations, particles);
 scene.add(fairies.group);
+const waystones = new Waystones(world, colliders);
+scene.add(waystones.group);
 
 interface SaveExtra {
   caches: { x: number; z: number; stock: number }[];
   hives?: { x: number; z: number; honey: number }[];
   rings?: { x: number; z: number }[];
+  dens?: { x: number; z: number }[]; // beyond the home den
+  bearHomes?: number[];
+  stones?: { x: number; z: number }[]; // beyond the home waystone
 }
 const loaded = garden.load(player);
-if (loaded) {
-  const extra = loaded.extra as SaveExtra | undefined;
-  for (const c of extra?.caches ?? []) stations.build(c.x, c.z, c.stock);
-  for (const h of extra?.hives ?? []) apiary.build(h.x, h.z, h.honey);
-  for (const r of extra?.rings ?? []) fairies.build(r.x, r.z);
+const loadedExtra = loaded?.extra as SaveExtra | undefined;
+if (loadedExtra) {
+  const extra = loadedExtra;
+  for (const c of extra.caches ?? []) stations.build(c.x, c.z, c.stock);
+  for (const d of extra.dens ?? []) apiary.buildDen(d.x, d.z);
+  for (const h of extra.hives ?? []) apiary.build(h.x, h.z, h.honey);
+  for (const r of extra.rings ?? []) fairies.build(r.x, r.z);
+  for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
 }
-apiary.syncBears();
+apiary.syncBears(loadedExtra?.bearHomes);
 player.setTool(econ.current);
 player.ride(econ.mount);
 
@@ -212,7 +224,7 @@ function renderShop() {
     hives.appendChild(
       card(
         `Hire a Bear <span class="desc">${econ.bears} working</span>`,
-        `Bears carry honey from your hives back to the Bear Den. Each carries ${econ.bearCarry}.`,
+        `Bears carry honey from your hives back to their den. Each carries ${econ.bearCarry}. New bears move into the den with the most hives per bear.`,
         needs ? 'Build a Beehive first (H)' : `✿ ${fmt(cost)}`,
         !needs && econ.pollen >= cost,
         () => {
@@ -220,7 +232,10 @@ function renderShop() {
           econ.pollen -= econ.bearCost;
           econ.bears++;
           apiary.syncBears();
-          bought('A bear lumbers out of the den.');
+          const den = apiary.bears[apiary.bears.length - 1].den;
+          bought(
+            `A bear lumbers out of the ${den === apiary.home ? 'home den' : den.label.replace('Bear Den · ', 'den at ')}.`,
+          );
         },
       ),
     );
@@ -258,7 +273,7 @@ function placement(): [number, number] | null {
   let x = player.pos.x;
   let z = player.pos.z;
   if (!econ.riding && garden.aimValid) {
-    const d = Math.hypot(garden.aim.x - x, garden.aim.z - z);
+    const d = wdist(x, z, garden.aim.x, garden.aim.z);
     if (d > 8) {
       toast('Too far away to build there.');
       return null;
@@ -271,7 +286,7 @@ function placement(): [number, number] | null {
     toast("Can't build in a creek bed.");
     return null;
   }
-  const why = stations.canBuildAt(x, z) ?? apiary.canBuildAt(x, z) ?? fairies.canBuildAt(x, z);
+  const why = stations.canBuildAt(x, z) ?? apiary.canBuildAt(x, z) ?? fairies.canBuildAt(x, z) ?? stoneNear(x, z);
   if (why) {
     toast(why + '.');
     return null;
@@ -338,10 +353,200 @@ function buildRing() {
   );
 }
 
+function stoneNear(x: number, z: number) {
+  for (const w of waystones.stones) if (wdist(w.x, w.z, x, z) < 6) return 'Too close to a waystone';
+  return null;
+}
+
+function buildDen() {
+  if (!econ.has('hive')) return toast('Build a Beehive first. Dens are for bears.');
+  const p = placement();
+  if (!p) return;
+  const why = apiary.denBlockedAt(p[0], p[1]);
+  if (why) {
+    chimes.deny();
+    return toast(`${why}. Dens need 40m between them.`);
+  }
+  if (!afford(econ.denCost, econ.pollen, 'A bear den ✿')) return;
+  econ.pollen -= econ.denCost;
+  econ.densBuilt++;
+  const den = apiary.buildDen(p[0], p[1]);
+  econ.bears++;
+  apiary.syncBears([], den);
+  built(p[0], p[1], 0xffa02b, `${den.label} built, and a bear moved in. Bears pick hives near their own den.`);
+}
+
+function buildStone() {
+  if (!econ.has('rake')) return toast('Waystones need the Rake first.');
+  const p = placement();
+  if (!p) return;
+  const why = waystones.canBuildAt(p[0], p[1]);
+  if (why) {
+    chimes.deny();
+    return toast(`${why}. Waystones need 30m between them.`);
+  }
+  if (!afford(econ.stoneCost, econ.pollen, 'A waystone ✿')) return;
+  econ.pollen -= econ.stoneCost;
+  econ.stonesBuilt++;
+  const st = waystones.build(p[0], p[1]);
+  built(p[0], p[1], 0x8fe8ff, `${st.label} raised! Stand in any waystone and press T to travel.`);
+}
+
+// ---------- build menu (B) ----------
+interface BuildOption {
+  name: string;
+  cost: () => string;
+  ok: () => boolean;
+  build: () => void;
+}
+const BUILDS: BuildOption[] = [
+  {
+    name: 'Squirrel Cache',
+    cost: () => `✿ ${fmt(econ.cacheCost)}`,
+    ok: () => econ.pollen >= econ.cacheCost,
+    build: buildCache,
+  },
+  {
+    name: 'Beehive',
+    cost: () => (econ.has('rake') ? `✿ ${fmt(econ.hiveCost)}` : 'needs the Rake'),
+    ok: () => econ.has('rake') && econ.pollen >= econ.hiveCost,
+    build: buildHive,
+  },
+  {
+    name: 'Fairy Ring',
+    cost: () => (econ.has('hive') ? `⬢ ${fmt(econ.ringCost)}` : 'needs a hive'),
+    ok: () => econ.has('hive') && econ.honey >= econ.ringCost,
+    build: buildRing,
+  },
+  {
+    name: 'Bear Den',
+    cost: () => (econ.has('hive') ? `✿ ${fmt(econ.denCost)}` : 'needs a hive'),
+    ok: () => econ.has('hive') && econ.pollen >= econ.denCost,
+    build: buildDen,
+  },
+  {
+    name: 'Waystone',
+    cost: () => (econ.has('rake') ? `✿ ${fmt(econ.stoneCost)}` : 'needs the Rake'),
+    ok: () => econ.has('rake') && econ.pollen >= econ.stoneCost,
+    build: buildStone,
+  },
+];
+let buildOpen = false;
+
+function showBuild(open: boolean) {
+  buildOpen = open;
+  $('build').classList.toggle('hidden', !open);
+  if (open) renderBuild();
+}
+
+function renderBuild() {
+  $('build-list').innerHTML = BUILDS.map(
+    (b, i) =>
+      `<div class="build-opt${b.ok() ? '' : ' no'}"><span class="k">${i + 1}</span>${b.name}<span class="cost">${b.cost()}</span></div>`,
+  ).join('');
+}
+
+// ---------- waystone travel (T) ----------
+function renderTravel(here: Waystone) {
+  const list = $('travel-list');
+  list.innerHTML = '';
+  const stones = [...waystones.stones].sort(
+    (a, b) => wdist(here.x, here.z, a.x, a.z) - wdist(here.x, here.z, b.x, b.z),
+  );
+  for (const st of stones) {
+    const row = document.createElement('div');
+    row.className = 'ring-row';
+    const info = document.createElement('div');
+    info.className = 'ring-info';
+    const dist = Math.round(wdist(here.x, here.z, st.x, st.z));
+    const glade = world.glades[world.gladeOf[world.tileAt(st.x, st.z)]];
+    info.innerHTML = `<div class="name">${st.label}</div><div class="desc">${
+      st === here
+        ? 'You are here'
+        : `${dist}m ${bearingName(here, st)} · ${glade.completed ? 'restored' : `${Math.floor((100 * glade.bloomed) / Math.max(1, glade.total))}% planted`}`
+    }</div>`;
+    const btn = document.createElement('button');
+    btn.textContent = st === here ? 'Here' : 'Travel';
+    btn.disabled = st === here;
+    btn.onclick = () => travel(st);
+    row.append(info, btn);
+    list.appendChild(row);
+  }
+}
+
+function bearingName(from: { x: number; z: number }, to: { x: number; z: number }) {
+  const deg = (Math.atan2(wrap(to.x - from.x), -wrap(to.z - from.z)) * 180) / Math.PI;
+  return ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'][
+    ((Math.round(deg / 45) % 8) + 8) % 8
+  ];
+}
+
+function travel(st: Waystone) {
+  const [x, z] = waystones.arrival(st);
+  particles.burst(player.pos.x, player.pos.y + 1, player.pos.z, 0x8fe8ff, 80, 1.2, 2);
+  player.pos.set(x, world.heightAt(x, z), z);
+  player.vel.set(0, 0, 0);
+  player.yaw = Math.PI; // face away from the arch
+  particles.burst(x, world.heightAt(x, z) + 1, z, 0x8fe8ff, 120, 1.5, 3);
+  const flash = $('flash');
+  flash.classList.remove('go');
+  void flash.offsetWidth;
+  flash.classList.add('go');
+  chimes.fanfare();
+  openMenu(null);
+  toast(`Arrived at ${st.label}.`);
+}
+
+// ---------- compass ----------
+const COMPASS_W = 560;
+const COMPASS_FOV = 180;
+const camDir = new THREE.Vector3();
+
+function renderCompass() {
+  camera.getWorldDirection(camDir);
+  const heading = (Math.atan2(camDir.x, -camDir.z) * 180) / Math.PI;
+  const px = COMPASS_W / COMPASS_FOV;
+  const rel = (deg: number) => ((((deg - heading) % 360) + 540) % 360) - 180;
+  let html = '';
+  for (let d = 0; d < 360; d += 15) {
+    const r = rel(d);
+    if (Math.abs(r) > COMPASS_FOV / 2) continue;
+    const label = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][d / 45];
+    const x = COMPASS_W / 2 + r * px;
+    html +=
+      d % 45 === 0
+        ? `<span class="cp-card${d === 0 ? ' n' : ''}" style="left:${x}px">${label}</span>`
+        : `<span class="cp-tick" style="left:${x}px"></span>`;
+  }
+  const mark = (tx: number, tz: number, cls: string, glyph: string, label = '', clamp = false) => {
+    const dx = wrap(tx - player.pos.x);
+    const dz = wrap(tz - player.pos.z);
+    const dist = Math.hypot(dx, dz);
+    if (dist < 4) return;
+    let r = rel((Math.atan2(dx, -dz) * 180) / Math.PI);
+    if (Math.abs(r) > COMPASS_FOV / 2) {
+      if (!clamp) return;
+      r = Math.sign(r) * (COMPASS_FOV / 2 - 14); // pinned inside the faded edge, so it stays visible
+    }
+    const x = COMPASS_W / 2 + r * px;
+    html += `<span class="cp-mark ${cls}" style="left:${x}px">${glyph}${label ? `<em>${label}</em>` : ''}</span>`;
+  };
+  const near = <T extends { x: number; z: number }>(list: T[], n: number) =>
+    [...list]
+      .sort((a, b) => wdist(a.x, a.z, player.pos.x, player.pos.z) - wdist(b.x, b.z, player.pos.x, player.pos.z))
+      .slice(0, n);
+  for (const w of near(waystones.stones.slice(1), 4)) mark(w.x, w.z, 'stone', '◆');
+  for (const d of near(apiary.dens.slice(1), 3)) mark(d.x, d.z, 'den', '●');
+  const hd = Math.round(wdist(player.pos.x, player.pos.z, stations.hollow.x, stations.hollow.z));
+  mark(stations.hollow.x, stations.hollow.z, 'home', '⌂', `${fmt(hd)}m`, true);
+  $('compass-strip').innerHTML = html;
+}
+
 // ---------- input ----------
 /** Any full-screen menu is open (the game pauses input while one is). */
 let menuOpen = false;
-let menuKind: 'shop' | 'rings' | null = null;
+type MenuKind = 'shop' | 'rings' | 'travel';
+let menuKind: MenuKind | null = null;
 let started = false;
 let mouseDown = false;
 let resetArmed = false;
@@ -351,13 +556,16 @@ function lock() {
   canvas.requestPointerLock?.();
 }
 
-function openMenu(kind: 'shop' | 'rings' | null) {
+function openMenu(kind: MenuKind | null) {
   menuKind = kind;
   menuOpen = kind !== null;
+  showBuild(false);
   $('shop').classList.toggle('hidden', kind !== 'shop');
   $('rings').classList.toggle('hidden', kind !== 'rings');
+  $('travel').classList.toggle('hidden', kind !== 'travel');
   if (kind === 'shop') renderShop();
   if (kind === 'rings') renderRings();
+  if (kind === 'travel') renderTravel(waystones.nearby(player.pos)!);
   if (kind) document.exitPointerLock?.();
   else lock();
 }
@@ -370,7 +578,7 @@ interface RingRow {
 let ringRows: RingRow[] = [];
 
 function ringStatus(r: Ring) {
-  const dist = Math.round(Math.hypot(r.x - player.pos.x, r.z - player.pos.z));
+  const dist = Math.round(wdist(player.pos.x, player.pos.z, r.x, r.z));
   const where = dist < 4 ? 'right here' : `${dist}m away`;
   let work: string;
   if (r.left > 0) work = `<b>${fmt(r.left)}</b> tiles left to plant`;
@@ -440,6 +648,9 @@ function saveNow() {
     caches: stations.caches.map((c) => ({ x: c.x, z: c.z, stock: c.stock })),
     hives: apiary.hives.map((h) => ({ x: h.x, z: h.z, honey: h.honey })),
     rings: fairies.rings.map((r) => ({ x: r.x, z: r.z })),
+    dens: apiary.dens.slice(1).map((d) => ({ x: d.x, z: d.z })),
+    bearHomes: apiary.bearHomes(),
+    stones: waystones.stones.slice(1).map((w) => ({ x: w.x, z: w.z })),
   };
   garden.save(player, extra);
 }
@@ -483,8 +694,24 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') return openMenu(menuKind === 'shop' ? null : 'shop');
   if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
   if (menuOpen) return;
+  if (buildOpen) {
+    // While the build menu is up, number keys build instead of switching tools.
+    if (e.code === 'KeyB' || e.code === 'Escape') return showBuild(false);
+    if (e.code.startsWith('Digit')) {
+      const opt = BUILDS[Number(e.code.slice(5)) - 1];
+      if (opt) {
+        showBuild(false);
+        opt.build();
+      }
+      return;
+    }
+  }
   if (e.code.startsWith('Digit')) selectSlot(Number(e.code.slice(5)) - 1);
-  if (e.code === 'KeyB') buildCache();
+  if (e.code === 'KeyB') showBuild(true);
+  if (e.code === 'KeyT') {
+    if (waystones.nearby(player.pos)) openMenu('travel');
+    else toast('Stand in a waystone to travel. Build them from the B menu.');
+  }
   if (e.code === 'KeyH') buildHive();
   if (e.code === 'KeyR') buildRing();
   if (e.code === 'KeyF') {
@@ -524,6 +751,7 @@ function frame() {
   sharedUniforms.uFogDensity.value = fogD;
   (scene.fog as THREE.FogExp2).density = fogD;
   sky.position.set(camera.position.x, 0, camera.position.z);
+  terrain.update(camera);
 
   const mount = econ.mount;
   garden.updateAim(camera, player.pos);
@@ -553,8 +781,12 @@ function frame() {
   if (!src) {
     const ap = apiary.nearby(player.pos);
     const ring = fairies.nearby(player.pos);
-    if (ap?.kind === 'den') {
-      stationText = `Bear Den · ${econ.bears} bear${econ.bears === 1 ? '' : 's'} · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
+    const stone = waystones.nearby(player.pos);
+    if (stone) {
+      stationText = `${stone.label} · press T to travel`;
+    } else if (ap?.kind === 'den') {
+      const n = apiary.bearsAt(ap.den);
+      stationText = `${ap.den.label} · ${n} bear${n === 1 ? '' : 's'} here · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
     } else if (ap?.kind === 'hive') {
       const h = ap.hive;
       stationText = `${h.label} · ${Math.floor(h.honey)} / ${fmt(econ.hiveCap)} honey · ${h.flowers} flowers in reach · ${apiary.rateOf(h).toFixed(2)}/s`;
@@ -576,10 +808,11 @@ function frame() {
     el.classList.add('pulse');
   });
   fairies.update(dt, time, player.pos);
-  hearts.update(time);
+  hearts.update(time, camera.position);
+  waystones.update(time);
   particles.update(dt, time);
   world.flush();
-  flowers.update(camera);
+  flowers.update(camera, time);
 
   // HUD (throttled)
   hudTimer -= dt;
@@ -616,6 +849,8 @@ function frame() {
     $('hint').textContent = hint;
     $('crosshair').style.display = !mount && (player.firstPerson || player.zoom < 12) ? 'block' : 'none';
     if (menuKind === 'rings') updateRings();
+    if (buildOpen) renderBuild();
+    renderCompass();
     if (menuOpen) {
       $('shop-pollen').textContent = fmt(econ.pollen);
       $('shop-honey').textContent = fmt(econ.honey);
@@ -632,6 +867,7 @@ function frame() {
     saveNow();
   }
 
+  planetizeTree(scene); // new objects pick up the planet wrap + curve before they draw
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
@@ -652,6 +888,10 @@ frame();
   buildRing,
   apiary,
   fairies,
+  waystones,
+  travel,
+  buildDen,
+  buildStone,
   get mouseDown() {
     return mouseDown;
   },

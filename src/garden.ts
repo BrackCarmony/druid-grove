@@ -3,13 +3,16 @@ import { Economy, MountDef, MountId, SOILS, ToolId } from './economy';
 import { Chimes, Particles } from './fx';
 import { Flowers } from './flowers';
 import { DeadScenery, HeartTrees } from './props';
-import { Glade, HALF, SIZE, Soil, SOIL_NAMES, World } from './world';
+import { curveDrop } from './planet';
+import { Glade, HALF, SIZE, Soil, SOIL_NAMES, tileIndex, wdist, World, wrap } from './world';
 
 // Core loop: apply planting effort to tiles under the cursor, grow seeded tiles,
 // bloom them into flowers + pollen, and restore whole glades.
 
 export const COMPLETE_AT = 0.9;
-const SAVE_KEY = 'druid-grove-save-v2';
+const SAVE_KEY = 'druid-grove-planet-v3';
+/** Every tile of a glade lies within this many metres of its seed (cell + jitter + border warp). */
+const GLADE_REACH = 58;
 
 export type AimStatus = 'none' | 'ok' | 'far' | 'locked' | 'creek' | 'done' | 'empty';
 
@@ -54,7 +57,7 @@ export class Garden {
     };
   }
 
-  // March along the camera ray until it dips below the heightfield.
+  // March along the camera ray until it dips below the (planet-curved) ground.
   updateAim(camera: THREE.Camera, player: THREE.Vector3) {
     const origin = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3());
@@ -63,22 +66,19 @@ export class Garden {
     const maxDist = 400;
     for (let d = 0.2; d < maxDist; d += d < 20 ? 0.1 : 0.5) {
       this.tmp.copy(origin).addScaledVector(dir, d);
-      if (Math.abs(this.tmp.x) > HALF || Math.abs(this.tmp.z) > HALF) {
-        if (d > 5) break;
-        prev = d;
-        continue;
-      }
-      if (this.tmp.y <= this.world.heightAt(this.tmp.x, this.tmp.z)) {
+      if (this.below(this.tmp, origin)) {
         // refine
         let a = prev;
         let b = d;
         for (let k = 0; k < 8; k++) {
           const m = (a + b) / 2;
           this.tmp.copy(origin).addScaledVector(dir, m);
-          if (this.tmp.y <= this.world.heightAt(this.tmp.x, this.tmp.z)) b = m;
+          if (this.below(this.tmp, origin)) b = m;
           else a = m;
         }
         this.aim.copy(origin).addScaledVector(dir, b);
+        this.aim.x = wrap(this.aim.x);
+        this.aim.z = wrap(this.aim.z);
         this.aimValid = true;
         break;
       }
@@ -92,13 +92,18 @@ export class Garden {
     const t = this.world.tileAt(this.aim.x, this.aim.z);
     const soil = t >= 0 ? (this.world.soil[t] as Soil) : Soil.Creek;
     this.aimSoil = soil === Soil.Creek && t >= 0 ? this.world.glades[this.world.gladeOf[t]].soil : soil;
-    const dist = Math.hypot(this.aim.x - player.x, this.aim.z - player.z);
+    const dist = wdist(player.x, player.z, this.aim.x, this.aim.z);
     if (dist > this.econ.reach + this.econ.tool.radius) this.aimStatus = 'far';
     else if (soil === Soil.Creek) this.aimStatus = 'creek';
     else if (!this.econ.canWork(soil)) this.aimStatus = 'locked';
     else if (this.world.seeded[t] && this.econ.tool.radius === 0) this.aimStatus = 'done';
     else if (this.econ.activeSeeds < 1) this.aimStatus = 'empty';
     else this.aimStatus = 'ok';
+  }
+
+  private below(p: THREE.Vector3, eye: THREE.Vector3) {
+    const d = Math.hypot(p.x - eye.x, p.z - eye.z);
+    return p.y <= this.world.heightAt(p.x, p.z) - curveDrop(d);
   }
 
   tilesUnderCursor(): number[] {
@@ -114,10 +119,9 @@ export class Garden {
     const cj = Math.floor(this.aim.z + HALF);
     for (let j = cj - ri; j <= cj + ri; j++) {
       for (let i = ci - ri; i <= ci + ri; i++) {
-        if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) continue;
-        const t = j * SIZE + i;
+        const t = tileIndex(i, j);
         const [x, z] = this.world.tileCenter(t);
-        if (t === t0 || Math.hypot(x - this.aim.x, z - this.aim.z) <= r) out.push(t);
+        if (t === t0 || wdist(this.aim.x, this.aim.z, x, z) <= r) out.push(t);
       }
     }
     return out;
@@ -146,10 +150,9 @@ export class Garden {
     const ri = Math.ceil(r);
     for (let j = cj - ri; j <= cj + ri; j++) {
       for (let i = ci - ri; i <= ci + ri; i++) {
-        if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) continue;
-        const t = j * SIZE + i;
+        const t = tileIndex(i, j);
         const [tx, tz] = this.world.tileCenter(t);
-        if (Math.hypot(tx - x, tz - z) <= r) tiles.push(t);
+        if (wdist(x, z, tx, tz) <= r) tiles.push(t);
       }
     }
     return tiles;
@@ -203,21 +206,18 @@ export class Garden {
   }
 
   private spawnFlora(t: number, time: number) {
-    const w = this.world;
     this.scenery.clearTile(t);
-    const g = w.glades[w.gladeOf[t]];
-    const [cx, cz] = w.tileCenter(t);
-    const n = 1 + Math.floor(Math.random() * 3);
-    const small = g.soil === Soil.Stone ? 0.75 : 1;
-    for (let k = 0; k < n; k++) {
-      const x = cx + (Math.random() - 0.5) * 0.9;
-      const z = cz + (Math.random() - 0.5) * 0.9;
-      const col = g.palette[Math.floor(Math.random() * g.palette.length)];
-      this.flowers.addFlower(x, w.heightAt(x, z), z, col, (0.75 + Math.random() * 0.55) * small, time + k * 0.12);
+    this.flowers.bloomTile(t, time);
+  }
+
+  /** Visit every tile of a glade (they all sit within GLADE_REACH of its seed). */
+  private gladeTiles(g: Glade, fn: (t: number) => void, pad = 0) {
+    const ci = Math.floor(g.seedX + HALF);
+    const cj = Math.floor(g.seedZ + HALF);
+    const R = GLADE_REACH + pad;
+    for (let j = cj - R; j <= cj + R; j++) {
+      for (let i = ci - R; i <= ci + R; i++) fn(tileIndex(i, j));
     }
-    const tx = cx + (Math.random() - 0.5) * 0.7;
-    const tz = cz + (Math.random() - 0.5) * 0.7;
-    this.flowers.addTuft(tx, w.heightAt(tx, tz), tz, 0.8 + Math.random() * 0.35, time);
   }
 
   private bloom(t: number, time: number, silent: boolean) {
@@ -253,34 +253,39 @@ export class Garden {
     this.particles.burst(hx, w.heightAt(hx, hz) + 1, hz, 0xd8ffb0, 250, 6, 4);
 
     // The rest of the glade flourishes outward from the heart.
-    for (let t = 0; t < SIZE * SIZE; t++) {
-      if (w.gladeOf[t] !== g.id) continue;
+    this.gladeTiles(g, (t) => {
+      if (w.gladeOf[t] !== g.id) return;
       if (w.soil[t] === Soil.Creek) {
         w.wet[t] = 1;
         w.markDirty(t);
-        continue;
+        return;
       }
-      if (w.seeded[t]) continue;
+      if (w.seeded[t]) return;
       const [x, z] = w.tileCenter(t);
       w.seeded[t] = 1;
       w.work[t] = 1;
-      w.growth[t] = -Math.hypot(x - hx, z - hz) * 0.05 - Math.random() * 0.3;
+      w.growth[t] = -wdist(hx, hz, x, z) * 0.05 - Math.random() * 0.3;
       w.growing.add(t);
-    }
+    });
     this.wetNeighbouringCreeks(g);
   }
 
   private wetNeighbouringCreeks(g: Glade) {
     const w = this.world;
-    for (let t = 0; t < SIZE * SIZE; t++) {
-      if (w.soil[t] !== Soil.Creek || w.wet[t]) continue;
-      const i = t % SIZE;
-      const nb = [i > 0 ? t - 1 : -1, i < SIZE - 1 ? t + 1 : -1, t - SIZE, t + SIZE];
-      if (nb.some((n) => n >= 0 && n < SIZE * SIZE && w.gladeOf[n] === g.id)) {
-        w.wet[t] = 1;
-        w.markDirty(t);
-      }
-    }
+    this.gladeTiles(
+      g,
+      (t) => {
+        if (w.soil[t] !== Soil.Creek || w.wet[t]) return;
+        const i = t % SIZE;
+        const j = (t / SIZE) | 0;
+        const nb = [tileIndex(i - 1, j), tileIndex(i + 1, j), tileIndex(i, j - 1), tileIndex(i, j + 1)];
+        if (nb.some((n) => w.gladeOf[n] === g.id)) {
+          w.wet[t] = 1;
+          w.markDirty(t);
+        }
+      },
+      2,
+    );
   }
 
   currentGlade(x: number, z: number): Glade | null {
@@ -309,8 +314,20 @@ export class Garden {
 
   save(player: { pos: THREE.Vector3; yaw: number }, extra: unknown) {
     const w = this.world;
-    const bytes = new Uint8Array(SIZE * SIZE);
-    for (let t = 0; t < SIZE * SIZE; t++) bytes[t] = w.seeded[t] ? 255 : Math.floor(w.work[t] * 200);
+    // Tiles are run-length encoded as (value, count) byte pairs: a planet is mostly long runs.
+    const runs: number[] = [];
+    let prev = -1;
+    let count = 0;
+    for (let t = 0; t <= SIZE * SIZE; t++) {
+      const b = t < SIZE * SIZE ? (w.seeded[t] ? 255 : Math.floor(w.work[t] * 200)) : -2;
+      if (b === prev && count < 255) count++;
+      else {
+        if (count) runs.push(prev, count);
+        prev = b;
+        count = 1;
+      }
+    }
+    const bytes = Uint8Array.from(runs);
     let bin = '';
     for (let k = 0; k < bytes.length; k += 4096) bin += String.fromCharCode(...bytes.subarray(k, k + 4096));
     const data = {
@@ -329,6 +346,8 @@ export class Garden {
       hivesBuilt: this.econ.hivesBuilt,
       bears: this.econ.bears,
       ringsBuilt: this.econ.ringsBuilt,
+      densBuilt: this.econ.densBuilt,
+      stonesBuilt: this.econ.stonesBuilt,
       extra,
       current: this.econ.current,
       levels: this.econ.levels,
@@ -371,17 +390,25 @@ export class Garden {
       this.econ.hivesBuilt = d.hivesBuilt ?? 0;
       this.econ.bears = d.bears ?? 0;
       this.econ.ringsBuilt = d.ringsBuilt ?? 0;
+      this.econ.densBuilt = d.densBuilt ?? 0;
+      this.econ.stonesBuilt = d.stonesBuilt ?? 0;
       const bin = atob(d.tiles);
+      const tiles = new Uint8Array(SIZE * SIZE);
+      for (let k = 0, t = 0; k < bin.length; k += 2) {
+        const v = bin.charCodeAt(k);
+        tiles.fill(v, t, t + bin.charCodeAt(k + 1));
+        t += bin.charCodeAt(k + 1);
+      }
       const completed = new Set<number>(d.completed);
       for (let t = 0; t < SIZE * SIZE; t++) {
-        const b = bin.charCodeAt(t);
+        const b = tiles[t];
         if (b === 255) {
           w.seeded[t] = 1;
           w.work[t] = 1;
           w.growth[t] = 1;
           w.bloomed[t] = 1;
           w.glades[w.gladeOf[t]].bloomed++;
-          this.spawnFlora(t, -100);
+          this.scenery.clearTile(t); // flowers stream in from the bloom state on their own
         } else {
           w.work[t] = b / 200;
         }
@@ -391,17 +418,17 @@ export class Garden {
         if (completed.has(g.id)) {
           g.completed = true;
           this.hearts.complete(g, 0, true);
-          for (let t = 0; t < SIZE * SIZE; t++) {
+          this.gladeTiles(g, (t) => {
             if (w.gladeOf[t] === g.id && w.soil[t] === Soil.Creek) {
               w.wet[t] = 1;
               w.markDirty(t);
             }
-          }
+          });
           this.wetNeighbouringCreeks(g);
         }
       }
-      player.pos.x = d.pos[0];
-      player.pos.z = d.pos[1];
+      player.pos.x = wrap(d.pos[0]);
+      player.pos.z = wrap(d.pos[1]);
       player.pos.y = w.heightAt(d.pos[0], d.pos[1]);
       player.yaw = d.pos[2];
       return { extra: d.extra };

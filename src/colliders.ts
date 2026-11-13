@@ -1,6 +1,7 @@
 import * as THREE from 'three';
+import { SIZE, wrap } from './world';
 
-// Circle colliders on the ground plane, bucketed in a spatial hash.
+// Circle colliders on the ground plane, bucketed in a spatial hash that wraps with the planet.
 
 export interface Circle {
   x: number;
@@ -9,7 +10,8 @@ export interface Circle {
 }
 
 const CELL = 4;
-const key = (i: number, j: number) => (i + 4096) * 8192 + (j + 4096);
+const NCELL = SIZE / CELL;
+const key = (i: number, j: number) => (((i % NCELL) + NCELL) % NCELL) * NCELL + (((j % NCELL) + NCELL) % NCELL);
 
 export class Colliders {
   private cells = new Map<number, Circle[]>();
@@ -46,14 +48,14 @@ export class Colliders {
           const list = this.cells.get(key(i, j));
           if (!list) continue;
           for (const c of list) {
-            const dx = pos.x - c.x;
-            const dz = pos.z - c.z;
+            const dx = wrap(pos.x - c.x);
+            const dz = wrap(pos.z - c.z);
             const min = c.r + radius;
             const d2 = dx * dx + dz * dz;
             if (d2 >= min * min) continue;
             const d = Math.sqrt(d2) || 0.0001;
-            pos.x = c.x + (dx / d) * min;
-            pos.z = c.z + (dz / d) * min;
+            pos.x += (dx / d) * min - dx;
+            pos.z += (dz / d) * min - dz;
             moved = true;
           }
         }

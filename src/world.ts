@@ -1,11 +1,30 @@
 import * as THREE from 'three';
 import { fbm, mulberry32, valueNoise } from './noise';
 
-// World layout: a SIZE x SIZE grid of 1m tiles centred on the origin.
+// The planet: a SIZE x SIZE grid of 1m tiles that wraps around on itself in both
+// directions (walk far enough any way and you come home). It's drawn curving away
+// below the horizon so it reads as a small world. Canonical coordinates run from
+// -HALF to HALF; anything outside that is the same place one lap around.
 // The land is split into irregular "glades" separated by dry creek beds.
 
-export const SIZE = 384;
+export const SIZE = 1024;
 export const HALF = SIZE / 2;
+const CELL = 32; // glade seed spacing
+const NC = SIZE / CELL;
+
+/** Bring a coordinate back into [-HALF, HALF). Also works on differences (shortest way round). */
+export function wrap(v: number) {
+  return v - SIZE * Math.floor((v + HALF) / SIZE);
+}
+/** Distance the short way round the planet. */
+export function wdist(ax: number, az: number, bx: number, bz: number) {
+  return Math.hypot(wrap(bx - ax), wrap(bz - az));
+}
+const imod = (i: number) => ((i % SIZE) + SIZE) % SIZE;
+/** Tile index for wrapped integer tile coordinates. */
+export function tileIndex(i: number, j: number) {
+  return imod(j) * SIZE + imod(i);
+}
 
 export enum Soil {
   Dirt = 0,
@@ -27,6 +46,7 @@ export interface Glade {
   bloomed: number;
   completed: boolean;
   palette: number[];
+  paletteId: number;
 }
 
 const NAME_A = [
@@ -50,10 +70,69 @@ const NAME_A = [
   'Tansy',
   'Yarrow',
   'Aster',
+  'Heather',
+  'Juniper',
+  'Linden',
+  'Mallow',
+  'Nettle',
+  'Oxlip',
+  'Primrose',
+  'Quill',
+  'Rowan',
+  'Sage',
+  'Teasel',
+  'Umber',
+  'Vetch',
+  'Wisp',
+  'Alder',
+  'Bracken',
+  'Campion',
+  'Dewberry',
+  'Elder',
+  'Foxglove',
+  'Gorse',
+  'Hazel',
+  'Ivy',
+  'Kestrel',
+  'Lichen',
+  'Meadowsweet',
+  'Owl',
+  'Pippin',
+  'Robin',
+  'Starling',
+  'Thrush',
+  'Violet',
+  'Wort',
+  'Acorn',
+  'Bluebell',
+  'Catkin',
+  'Daisy',
+  'Finch',
 ];
-const NAME_B = ['Glade', 'Hollow', 'Dell', 'Meadow', 'Vale', 'Reach', 'Field', 'Rise', 'Bottom', 'Green'];
+const NAME_B = [
+  'Glade',
+  'Hollow',
+  'Dell',
+  'Meadow',
+  'Vale',
+  'Reach',
+  'Field',
+  'Rise',
+  'Bottom',
+  'Green',
+  'Combe',
+  'Knoll',
+  'Hurst',
+  'Lea',
+  'Mead',
+  'Brake',
+  'Copse',
+  'Downs',
+  'Fold',
+  'Heath',
+];
 
-const PALETTES: number[][] = [
+export const PALETTES: number[][] = [
   [0xffd6e8, 0xff8fb8, 0xffffff, 0xffe066],
   [0xb8a4ff, 0x8f7bff, 0xe8dcff, 0xffffff],
   [0xffb36b, 0xffe066, 0xff6b6b, 0xfff4d6],
@@ -63,7 +142,7 @@ const PALETTES: number[][] = [
 ];
 
 export class World {
-  heights = new Float32Array((SIZE + 1) * (SIZE + 1)); // vertex heights
+  heights = new Float32Array(SIZE * SIZE); // corner heights; corner (i, j) sits at (i - HALF, j - HALF)
   soil = new Uint8Array(SIZE * SIZE);
   gladeOf = new Int16Array(SIZE * SIZE);
   creekDist = new Float32Array(SIZE * SIZE);
@@ -79,8 +158,12 @@ export class World {
 
   stateTex: THREE.DataTexture;
   staticTex: THREE.DataTexture;
+  heightTex: THREE.DataTexture;
   private stateData = new Uint8Array(SIZE * SIZE * 4);
-  private dirty = false;
+  // Dirty span per row, so only changed rows get re-uploaded.
+  private rowMin = new Int32Array(SIZE).fill(SIZE);
+  private rowMax = new Int32Array(SIZE).fill(-1);
+  private dirtyRows = new Set<number>();
 
   startGlade = 0;
 
@@ -92,53 +175,56 @@ export class World {
     this.stateTex = new THREE.DataTexture(this.stateData, SIZE, SIZE, THREE.RGBAFormat);
     this.stateTex.magFilter = THREE.LinearFilter;
     this.stateTex.minFilter = THREE.LinearFilter;
+    this.stateTex.wrapS = this.stateTex.wrapT = THREE.RepeatWrapping;
     this.stateTex.needsUpdate = true;
+    this.heightTex = new THREE.DataTexture(this.heights, SIZE, SIZE, THREE.RedFormat, THREE.FloatType);
+    this.heightTex.magFilter = THREE.NearestFilter;
+    this.heightTex.minFilter = THREE.NearestFilter;
+    this.heightTex.needsUpdate = true;
   }
 
   // ---------- generation ----------
 
   private generateGlades(rng: () => number) {
-    const cells = Math.round(SIZE / 32);
-    const cellSize = SIZE / cells;
+    // One jittered seed per cell, on a grid that wraps.
     const seeds: { x: number; z: number }[] = [];
-    for (let cz = 0; cz < cells; cz++) {
-      for (let cx = 0; cx < cells; cx++) {
+    for (let cz = 0; cz < NC; cz++) {
+      for (let cx = 0; cx < NC; cx++) {
         seeds.push({
-          x: (cx + 0.2 + rng() * 0.6) * cellSize - HALF,
-          z: (cz + 0.2 + rng() * 0.6) * cellSize - HALF,
+          x: (cx + 0.2 + rng() * 0.6) * CELL - HALF,
+          z: (cz + 0.2 + rng() * 0.6) * CELL - HALF,
         });
       }
     }
-    // Pull the seed nearest the centre onto the centre so the start glade is in the middle.
-    let best = 0;
-    let bestD = Infinity;
-    seeds.forEach((s, i) => {
-      const d = s.x * s.x + s.z * s.z;
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    });
-    seeds[best].x = 0;
-    seeds[best].z = 0;
-    this.startGlade = best;
+    // Home is the glade at the origin.
+    const home = Math.floor(HALF / CELL) * NC + Math.floor(HALF / CELL);
+    seeds[home].x = 0;
+    seeds[home].z = 0;
+    this.startGlade = home;
 
-    // Assign tiles to nearest seed using domain-warped coordinates for organic borders.
+    // Assign tiles to the nearest seed (the short way round) using domain-warped
+    // coordinates for organic borders. Only nearby cells can win.
+    const P = SIZE / 32;
     for (let j = 0; j < SIZE; j++) {
       for (let i = 0; i < SIZE; i++) {
         const x = i - HALF + 0.5;
         const z = j - HALF + 0.5;
-        const wx = x + (fbm(x * 0.04, z * 0.04, 3, 11) - 0.5) * 22;
-        const wz = z + (fbm(x * 0.04, z * 0.04, 3, 29) - 0.5) * 22;
+        const wx = x + (fbm(x / 32, z / 32, 3, 11, P) - 0.5) * 22;
+        const wz = z + (fbm(x / 32, z / 32, 3, 29, P) - 0.5) * 22;
+        const ci = Math.floor((wx + HALF) / CELL);
+        const cj = Math.floor((wz + HALF) / CELL);
         let bi = 0;
         let bd = Infinity;
-        for (let s = 0; s < seeds.length; s++) {
-          const dx = wx - seeds[s].x;
-          const dz = wz - seeds[s].z;
-          const d = dx * dx + dz * dz;
-          if (d < bd) {
-            bd = d;
-            bi = s;
+        for (let dj = -2; dj <= 2; dj++) {
+          for (let di = -2; di <= 2; di++) {
+            const s = ((((cj + dj) % NC) + NC) % NC) * NC + ((((ci + di) % NC) + NC) % NC);
+            const dx = wrap(wx - seeds[s].x);
+            const dz = wrap(wz - seeds[s].z);
+            const d = dx * dx + dz * dz;
+            if (d < bd) {
+              bd = d;
+              bi = s;
+            }
           }
         }
         this.gladeOf[j * SIZE + i] = bi;
@@ -146,46 +232,50 @@ export class World {
     }
 
     // Creek beds: tiles that touch another glade. Then BFS distance from creeks.
-    const queue: number[] = [];
+    const queue = new Int32Array(SIZE * SIZE);
+    let qn = 0;
     this.creekDist.fill(Infinity);
     for (let j = 0; j < SIZE; j++) {
       for (let i = 0; i < SIZE; i++) {
         const t = j * SIZE + i;
         const g = this.gladeOf[t];
-        const edge = i === 0 || j === 0 || i === SIZE - 1 || j === SIZE - 1;
-        let border = false;
-        if (!edge) {
-          border = this.gladeOf[t + 1] !== g || this.gladeOf[t + SIZE] !== g;
-        }
-        if (border) {
+        if (this.gladeOf[tileIndex(i + 1, j)] !== g || this.gladeOf[tileIndex(i, j + 1)] !== g) {
           this.creekDist[t] = 0;
-          queue.push(t);
+          queue[qn++] = t;
         }
       }
     }
-    for (let q = 0; q < queue.length; q++) {
+    for (let q = 0; q < qn; q++) {
       const t = queue[q];
       const i = t % SIZE;
       const j = (t / SIZE) | 0;
       const d = this.creekDist[t] + 1;
-      const nb = [i > 0 ? t - 1 : -1, i < SIZE - 1 ? t + 1 : -1, j > 0 ? t - SIZE : -1, j < SIZE - 1 ? t + SIZE : -1];
-      for (const n of nb) {
-        if (n >= 0 && this.creekDist[n] > d) {
+      if (d > 8) continue; // only the first few metres matter
+      for (const n of [tileIndex(i - 1, j), tileIndex(i + 1, j), tileIndex(i, j - 1), tileIndex(i, j + 1)]) {
+        if (this.creekDist[n] > d) {
           this.creekDist[n] = d;
-          queue.push(n);
+          queue[qn++] = n;
         }
       }
     }
 
-    // Glade metadata. Soil gets harder the further a glade is from the centre.
+    // Glade metadata. Soil gets harder the further a glade is from home, so the far
+    // side of the planet is all stone.
     const maxR = HALF * Math.SQRT2;
+    const used = new Set<string>();
     seeds.forEach((s, id) => {
       const r = Math.hypot(s.x, s.z) / maxR;
       const soil = r < 0.3 ? Soil.Dirt : r < 0.62 ? Soil.Clay : Soil.Stone;
-      const name = `${NAME_A[Math.floor(rng() * NAME_A.length)]} ${NAME_B[Math.floor(rng() * NAME_B.length)]}`;
+      let name = '';
+      for (let tries = 0; tries < 12 && (!name || used.has(name)); tries++) {
+        name = `${NAME_A[Math.floor(rng() * NAME_A.length)]} ${NAME_B[Math.floor(rng() * NAME_B.length)]}`;
+      }
+      for (let k = 2; used.has(name); k++) name = name.replace(/ \d+$/, '') + ` ${k}`;
+      used.add(name);
+      const paletteId = Math.floor(rng() * PALETTES.length);
       this.glades.push({
         id,
-        name: id === best ? 'Heartseed Glade' : name,
+        name: id === home ? 'Heartseed Glade' : name,
         soil,
         seedX: s.x,
         seedZ: s.z,
@@ -193,7 +283,8 @@ export class World {
         total: 0,
         bloomed: 0,
         completed: false,
-        palette: PALETTES[Math.floor(rng() * PALETTES.length)],
+        palette: PALETTES[paletteId],
+        paletteId,
       });
     });
 
@@ -216,7 +307,7 @@ export class World {
       if (this.soil[t] === Soil.Creek) continue;
       const g = this.glades[this.gladeOf[t]];
       const [x, z] = this.tileCenter(t);
-      const d = Math.hypot(x - g.seedX, z - g.seedZ) - Math.min(this.creekDist[t], 6) * 2;
+      const d = wdist(x, z, g.seedX, g.seedZ) - Math.min(this.creekDist[t], 6) * 2;
       if (d < bestScore[g.id]) {
         bestScore[g.id] = d;
         g.heartTile = t;
@@ -225,30 +316,23 @@ export class World {
   }
 
   private generateHeights(seed: number) {
-    const N = SIZE + 1;
-    for (let j = 0; j < N; j++) {
-      for (let i = 0; i < N; i++) {
+    for (let j = 0; j < SIZE; j++) {
+      for (let i = 0; i < SIZE; i++) {
         const x = i - HALF;
         const z = j - HALF;
-        let h = (fbm(x * 0.018, z * 0.018, 4, seed) - 0.5) * 14;
-        h += (valueNoise(x * 0.11, z * 0.11, seed + 5) - 0.5) * 0.6;
-        // Creek dip: sample the distance of nearby tiles
-        const ti = Math.min(SIZE - 1, Math.max(0, i));
-        const tj = Math.min(SIZE - 1, Math.max(0, j));
+        let h = (fbm(x / 64, z / 64, 4, seed, SIZE / 64) - 0.5) * 14;
+        h += (valueNoise(x / 8, z / 8, seed + 5, SIZE / 8) - 0.5) * 0.6;
+        // Creek dip: the four tiles around this corner
         let cd = Infinity;
         for (let dj = -1; dj <= 0; dj++) {
-          for (let di = -1; di <= 0; di++) {
-            const a = Math.min(SIZE - 1, Math.max(0, ti + di));
-            const b = Math.min(SIZE - 1, Math.max(0, tj + dj));
-            cd = Math.min(cd, this.creekDist[b * SIZE + a]);
-          }
+          for (let di = -1; di <= 0; di++) cd = Math.min(cd, this.creekDist[tileIndex(i + di, j + dj)]);
         }
         const dip = Math.max(0, 1 - cd / 3);
         h -= dip * dip * 1.4;
-        // Outer stone glades are rougher and higher.
+        // Far-side stone glades are rougher and higher.
         const r = Math.hypot(x, z) / HALF;
-        h += Math.max(0, r - 0.7) * 10 * fbm(x * 0.06, z * 0.06, 3, seed + 9);
-        this.heights[j * N + i] = h;
+        h += Math.max(0, r - 0.7) * 10 * fbm(x / 16, z / 16, 3, seed + 9, SIZE / 16);
+        this.heights[j * SIZE + i] = h;
       }
     }
   }
@@ -263,11 +347,12 @@ export class World {
       data[t * 4 + 0] = (s === Soil.Creek ? g.soil : s) === Soil.Clay ? 255 : 0;
       data[t * 4 + 1] = (s === Soil.Creek ? g.soil : s) === Soil.Stone ? 255 : 0;
       data[t * 4 + 2] = s === Soil.Creek ? 255 : 0;
-      data[t * 4 + 3] = Math.floor(valueNoise(i * 0.3, j * 0.3, seed + 3) * 255);
+      data[t * 4 + 3] = Math.floor(valueNoise(i / 4, j / 4, seed + 3, SIZE / 4) * 255);
     }
     const tex = new THREE.DataTexture(data, SIZE, SIZE, THREE.RGBAFormat);
     tex.magFilter = THREE.LinearFilter;
     tex.minFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
     return tex;
   }
@@ -278,25 +363,27 @@ export class World {
     return [(t % SIZE) - HALF + 0.5, ((t / SIZE) | 0) - HALF + 0.5];
   }
 
+  /** Every position is on the planet, so this always returns a tile. */
   tileAt(x: number, z: number): number {
-    const i = Math.floor(x + HALF);
-    const j = Math.floor(z + HALF);
-    if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) return -1;
-    return j * SIZE + i;
+    return tileIndex(Math.floor(x + HALF), Math.floor(z + HALF));
   }
 
   heightAt(x: number, z: number): number {
-    const N = SIZE + 1;
-    const fx = Math.min(SIZE - 0.001, Math.max(0, x + HALF));
-    const fz = Math.min(SIZE - 0.001, Math.max(0, z + HALF));
-    const i = Math.floor(fx);
-    const j = Math.floor(fz);
-    const u = fx - i;
-    const v = fz - j;
-    const h00 = this.heights[j * N + i];
-    const h10 = this.heights[j * N + i + 1];
-    const h01 = this.heights[(j + 1) * N + i];
-    const h11 = this.heights[(j + 1) * N + i + 1];
+    const fx = x + HALF;
+    const fz = z + HALF;
+    const fi = Math.floor(fx);
+    const fj = Math.floor(fz);
+    const u = fx - fi;
+    const v = fz - fj;
+    const i0 = imod(fi);
+    const j0 = imod(fj);
+    const i1 = (i0 + 1) % SIZE;
+    const j1 = (j0 + 1) % SIZE;
+    const H = this.heights;
+    const h00 = H[j0 * SIZE + i0];
+    const h10 = H[j0 * SIZE + i1];
+    const h01 = H[j1 * SIZE + i0];
+    const h11 = H[j1 * SIZE + i1];
     return h00 * (1 - u) * (1 - v) + h10 * u * (1 - v) + h01 * (1 - u) * v + h11 * u * v;
   }
 
@@ -307,14 +394,31 @@ export class World {
     this.stateData[t * 4] = r;
     this.stateData[t * 4 + 1] = this.wet[t] ? 255 : 0;
     this.stateData[t * 4 + 2] = this.bloomed[t] ? 255 : 0;
-    this.dirty = true;
+    const i = t % SIZE;
+    const j = (t / SIZE) | 0;
+    if (i < this.rowMin[j]) this.rowMin[j] = i;
+    if (i > this.rowMax[j]) this.rowMax[j] = i;
+    this.dirtyRows.add(j);
   }
 
+  /** Upload just the changed spans of the state texture. */
   flush() {
-    if (this.dirty) {
-      this.stateTex.needsUpdate = true;
-      this.dirty = false;
+    if (!this.dirtyRows.size) return;
+    // A full re-upload is cheaper than thousands of row ranges (e.g. right after loading).
+    if (this.dirtyRows.size > SIZE / 4) {
+      this.stateTex.clearUpdateRanges();
+    } else {
+      for (const j of this.dirtyRows) {
+        const a = this.rowMin[j];
+        this.stateTex.addUpdateRange((j * SIZE + a) * 4, (this.rowMax[j] - a + 1) * 4);
+      }
     }
+    for (const j of this.dirtyRows) {
+      this.rowMin[j] = SIZE;
+      this.rowMax[j] = -1;
+    }
+    this.dirtyRows.clear();
+    this.stateTex.needsUpdate = true;
   }
 
   isPlantable(t: number) {

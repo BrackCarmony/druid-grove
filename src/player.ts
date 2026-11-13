@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Colliders } from './colliders';
 import type { MountDef, MountId, ToolId } from './economy';
 import { animateMount, buildMount, MountModel } from './mounts';
-import { HALF, World } from './world';
+import { World, wrap } from './world';
 
 // The nymph: movement, mouse-look, riding, and a single continuous zoom that runs
 // from first person -> over the shoulder -> a high overview of the whole world.
@@ -116,9 +116,6 @@ export class Player {
     const before = this.pos.clone();
     this.pos.addScaledVector(this.vel, dt);
     this.colliders.resolve(this.pos, mount ? mount.bodyRadius : BODY_RADIUS);
-    const lim = HALF - 0.5;
-    this.pos.x = THREE.MathUtils.clamp(this.pos.x, -lim, lim);
-    this.pos.z = THREE.MathUtils.clamp(this.pos.z, -lim, lim);
     // Velocity reflects what actually happened, so sliding along rocks feels right.
     // (Capped at the pre-collision speed so being pushed out of something never flings you.)
     if (dt > 0) {
@@ -133,6 +130,9 @@ export class Player {
       this.vel.x = vx;
       this.vel.z = vz;
     }
+    // The planet wraps: walking off one side brings you in from the other.
+    this.pos.x = wrap(this.pos.x);
+    this.pos.z = wrap(this.pos.z);
     const ground = this.world.heightAt(this.pos.x, this.pos.z);
     if (this.pos.y <= ground) {
       this.pos.y = ground;

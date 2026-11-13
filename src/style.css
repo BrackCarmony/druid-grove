@@ -83,7 +83,7 @@ body {
 
 #glade-box {
   position: absolute;
-  top: 16px;
+  top: 58px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--panel);
@@ -209,6 +209,7 @@ body {
 
 #shop,
 #rings,
+#travel,
 #start {
   position: fixed;
   inset: 0;
@@ -397,4 +398,132 @@ button.remove {
 }
 #station:empty {
   display: none;
+}
+
+/* ---------- compass ---------- */
+#compass {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  height: 38px;
+  background: var(--panel);
+  border-radius: 12px;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+#compass::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 7px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+#compass-strip {
+  position: absolute;
+  inset: 0;
+}
+#compass-strip span {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+}
+.cp-card {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-dim);
+}
+.cp-card.n {
+  color: #ff9e9e;
+}
+.cp-tick {
+  width: 1px;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.25);
+}
+.cp-mark {
+  font-size: 15px;
+  line-height: 1;
+}
+.cp-mark em {
+  font-style: normal;
+  font-size: 11px;
+  margin-left: 4px;
+  color: var(--ink);
+}
+.cp-mark.home {
+  color: #ffd36b;
+  font-size: 18px;
+  z-index: 2;
+}
+.cp-mark.stone {
+  color: #8fe8ff;
+}
+.cp-mark.den {
+  color: #ffa02b;
+  font-size: 11px;
+}
+
+/* ---------- build menu ---------- */
+#build {
+  position: absolute;
+  left: 50%;
+  bottom: 170px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 300px;
+  backdrop-filter: blur(6px);
+}
+.build-head {
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.build-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+.build-opt .k {
+  display: inline-block;
+  width: 20px;
+  text-align: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  font-size: 13px;
+}
+.build-opt .cost {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--ink-dim);
+}
+.build-opt.no {
+  opacity: 0.5;
+}
+
+/* waystone travel flash */
+#flash {
+  position: fixed;
+  inset: 0;
+  background: #dff8ff;
+  opacity: 0;
+  pointer-events: none;
+}
+#flash.go {
+  animation: flash 0.7s ease-out;
+}
+@keyframes flash {
+  from {
+    opacity: 0.85;
+  }
 }

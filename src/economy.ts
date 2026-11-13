@@ -328,6 +328,8 @@ export const HIVE = { radius: 22, perFlower: 0.004, cap: 120, baseCost: 1200, gr
 export const BEAR = { carry: 30, speed: 4.5, baseCost: 600, growth: 1.45 };
 export const FAIRY = { perRing: 3, carry: 40, speed: 9, radius: 36, power: 1.5, plantRadius: 1.1 };
 export const RING = { baseCost: 60, growth: 1.7 };
+export const DEN = { baseCost: 5000, growth: 1.8 };
+export const WAYSTONE = { baseCost: 1500, growth: 1.5 };
 
 export function satchelCap(lvl: number) {
   return Math.round((30 * Math.pow(1.6, lvl)) / 5) * 5;
@@ -357,6 +359,8 @@ export class Economy {
   hivesBuilt = 0;
   bears = 0;
   ringsBuilt = 0;
+  densBuilt = 0; // extra dens beyond the one at home
+  stonesBuilt = 0; // waystones beyond the one at home
 
   level(id: string) {
     return this.levels[id] ?? 0;
@@ -476,9 +480,15 @@ export class Economy {
   get hiveCost() {
     return Math.ceil(HIVE.baseCost * Math.pow(HIVE.growth, this.hivesBuilt));
   }
-  /** The first bear comes free with the first hive. */
+  /** The first bear comes free with the first hive, and one more with every new den. */
   get bearCost() {
-    return Math.ceil(BEAR.baseCost * Math.pow(BEAR.growth, Math.max(0, this.bears - 1)));
+    return Math.ceil(BEAR.baseCost * Math.pow(BEAR.growth, Math.max(0, this.bears - 1 - this.densBuilt)));
+  }
+  get denCost() {
+    return Math.ceil(DEN.baseCost * Math.pow(DEN.growth, this.densBuilt));
+  }
+  get stoneCost() {
+    return Math.ceil(WAYSTONE.baseCost * Math.pow(WAYSTONE.growth, this.stonesBuilt));
   }
   get hiveCap() {
     return hiveCap(this.level('combs'));

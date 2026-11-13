@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Colliders } from './colliders';
 import { Economy } from './economy';
-import { World } from './world';
+import { wdist, World, wrap } from './world';
 
 // Seed sources: the Seed Hollow at the start (endless seeds) and squirrel caches
 // the player builds. Each cache's squirrels run back and forth to the Hollow,
@@ -137,9 +137,9 @@ export class Stations {
   }
 
   canBuildAt(x: number, z: number): string | null {
-    if (Math.hypot(x - this.hollow.x, z - this.hollow.z) < MIN_CACHE_SPACING) return 'Too close to the Seed Hollow';
+    if (wdist(this.hollow.x, this.hollow.z, x, z) < MIN_CACHE_SPACING) return 'Too close to the Seed Hollow';
     for (const c of this.caches) {
-      if (Math.hypot(x - c.x, z - c.z) < MIN_CACHE_SPACING) return 'Too close to another cache';
+      if (wdist(c.x, c.z, x, z) < MIN_CACHE_SPACING) return 'Too close to another cache';
     }
     return null;
   }
@@ -189,9 +189,9 @@ export class Stations {
 
   /** Seeds within reach: returns the source the player is standing at, if any. */
   nearby(pos: THREE.Vector3): { kind: 'hollow' } | { kind: 'cache'; cache: Cache } | null {
-    if (Math.hypot(pos.x - this.hollow.x, pos.z - this.hollow.z) < HOLLOW_RANGE) return { kind: 'hollow' };
+    if (wdist(this.hollow.x, this.hollow.z, pos.x, pos.z) < HOLLOW_RANGE) return { kind: 'hollow' };
     for (const c of this.caches) {
-      if (Math.hypot(pos.x - c.x, pos.z - c.z) < CACHE_RANGE) return { kind: 'cache', cache: c };
+      if (wdist(c.x, c.z, pos.x, pos.z) < CACHE_RANGE) return { kind: 'cache', cache: c };
     }
     return null;
   }
@@ -202,9 +202,10 @@ export class Stations {
     const speed = this.econ.squirrelSpeed;
     const fwd = new THREE.Vector3();
     for (const c of this.caches) {
-      const dist = Math.max(4, Math.hypot(c.x - this.hollow.x, c.z - this.hollow.z));
-      const dx = (this.hollow.x - c.x) / dist;
-      const dz = (this.hollow.z - c.z) / dist;
+      const dist = Math.max(4, wdist(this.hollow.x, this.hollow.z, c.x, c.z));
+      // the short way round the planet
+      const dx = wrap(this.hollow.x - c.x) / dist;
+      const dz = wrap(this.hollow.z - c.z) / dist;
       for (const s of c.squirrels) {
         // Squirrels idle at a full cache, hopping in place.
         const idle = c.stock >= cap && s.phase === 'out' && s.t <= 0.001;
@@ -235,7 +236,7 @@ export class Stations {
         const hop = Math.abs(Math.sin(time * 9 + side * 7)) * 0.3;
         s.mesh.position.set(x, this.world.heightAt(x, z) + hop, z);
         s.mesh.rotation.y = Math.atan2(fwd.x, fwd.z);
-        s.mesh.visible = Math.hypot(x - playerPos.x, z - playerPos.z) < 220;
+        s.mesh.visible = wdist(playerPos.x, playerPos.z, x, z) < 220;
       }
       // seed pile grows with stock
       const pile = c.obj.children[3];
