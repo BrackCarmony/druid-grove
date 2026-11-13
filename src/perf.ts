@@ -97,7 +97,8 @@ export class Perf {
       dpr: r2(renderer.getPixelRatio()),
       cores: navigator.hardwareConcurrency ?? 0,
       mem: (navigator as { deviceMemory?: number }).deviceMemory ?? 0,
-      build: __BUILD__,
+      // A dev server started before vite.config.ts existed won't define it.
+      build: typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__,
     };
     const q = new URLSearchParams(location.search).get('perf');
     try {
