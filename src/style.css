@@ -560,3 +560,51 @@ button.remove {
   border-radius: 6px;
   pointer-events: none;
 }
+
+/* Home screen: save slots */
+#slots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 6px;
+  text-align: left;
+}
+.save-slot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+}
+.save-slot.last {
+  border-color: var(--leaf);
+}
+.save-slot-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.save-slot-meta {
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+.save-slot.empty .save-slot-text b {
+  color: var(--ink-dim);
+}
+.save-slot-play {
+  min-width: 104px;
+}
+.save-slot-delete {
+  background: transparent;
+  color: var(--ink-dim);
+  box-shadow: none;
+  min-width: 70px;
+}
+.save-slot-delete.armed {
+  background: #c0504a;
+  color: #fff;
+}

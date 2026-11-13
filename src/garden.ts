@@ -10,7 +10,6 @@ import { Glade, HALF, SIZE, Soil, SOIL_NAMES, tileIndex, wdist, World, wrap } fr
 // bloom them into flowers + pollen, and restore whole glades.
 
 export const COMPLETE_AT = 0.9;
-const SAVE_KEY = 'druid-grove-planet-v3';
 /** Every tile of a glade lies within this many metres of its seed (cell + jitter + border warp). */
 const GLADE_REACH = 58;
 
@@ -34,6 +33,8 @@ export class Garden {
   aimSoil: Soil = Soil.Dirt;
   private tmp = new THREE.Vector3();
   private lastTick = 0;
+  /** localStorage key of the save slot in play (set before load/save). */
+  key = '';
   // Tiles waiting their turn in a restored glade's outward bloom, bucketed by the
   // quarter-second they start growing. Kept out of world.growing so the per-frame
   // loop only touches tiles that are actually growing (a big batch of restored
@@ -380,9 +381,16 @@ export class Garden {
       completed: w.glades.filter((g) => g.completed).map((g) => g.id),
       pos: [player.pos.x, player.pos.z, player.yaw],
       tiles: btoa(bin),
+      savedAt: Date.now(),
+      planetPct:
+        (100 * w.glades.reduce((n, g) => n + g.bloomed, 0)) /
+        Math.max(
+          1,
+          w.glades.reduce((n, g) => n + g.total, 0),
+        ),
     };
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+      if (this.key) localStorage.setItem(this.key, JSON.stringify(data));
     } catch {
       /* storage unavailable: progress just won't persist */
     }
@@ -391,7 +399,7 @@ export class Garden {
   load(player: { pos: THREE.Vector3; yaw: number }): { extra: unknown } | null {
     let raw: string | null = null;
     try {
-      raw = localStorage.getItem(SAVE_KEY);
+      raw = this.key ? localStorage.getItem(this.key) : null;
     } catch {
       return null;
     }
@@ -462,14 +470,6 @@ export class Garden {
     } catch (e) {
       console.warn('Could not load save', e);
       return null;
-    }
-  }
-
-  static wipe() {
-    try {
-      localStorage.removeItem(SAVE_KEY);
-    } catch {
-      /* ignore */
     }
   }
 }

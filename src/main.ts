@@ -3,6 +3,7 @@ import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
 import { Perf } from './perf';
+import { deleteSlot, lastSlot, setLastSlot, SLOT_COUNT, slotInfo, slotKey } from './slots';
 import { planetizeTree } from './planet';
 import { Waystone, Waystones } from './waystones';
 import { FairyRings, Ring } from './fairies';
@@ -111,20 +112,35 @@ interface SaveExtra {
   bearHomes?: number[];
   stones?: { x: number; z: number }[]; // beyond the home waystone
   trampled?: number[]; // tiles whose boulder the stag smashed
+  playTime?: number; // seconds played in this world
 }
-const loaded = garden.load(player);
-const loadedExtra = loaded?.extra as SaveExtra | undefined;
-if (loadedExtra) {
-  const extra = loadedExtra;
-  for (const c of extra.caches ?? []) stations.build(c.x, c.z, c.stock);
-  for (const d of extra.dens ?? []) apiary.buildDen(d.x, d.z);
-  for (const h of extra.hives ?? []) apiary.build(h.x, h.z, h.honey);
-  for (const r of extra.rings ?? []) fairies.build(r.x, r.z);
-  for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
-  for (const t of extra.trampled ?? []) scenery.smash(t);
+
+// The world is generated up front (it's the same planet for every slot); the save
+// for the chosen slot is applied on top when the player picks one on the home screen.
+let activeSlot = -1;
+let loaded: { extra: unknown } | null = null;
+let playTime = 0;
+function loadSlot(i: number) {
+  activeSlot = i;
+  garden.key = slotKey(i);
+  loaded = garden.load(player);
+  const extra = loaded?.extra as SaveExtra | undefined;
+  if (extra) {
+    for (const c of extra.caches ?? []) stations.build(c.x, c.z, c.stock);
+    for (const d of extra.dens ?? []) apiary.buildDen(d.x, d.z);
+    for (const h of extra.hives ?? []) apiary.build(h.x, h.z, h.honey);
+    for (const r of extra.rings ?? []) fairies.build(r.x, r.z);
+    for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
+    for (const t of extra.trampled ?? []) scenery.smash(t);
+    playTime = extra.playTime ?? 0;
+  }
+  apiary.syncBears(extra?.bearHomes);
+  fairies.syncFairies(); // wayfarers
+  flowers.reset(); // chunks streamed in behind the home screen predate the save
+  player.setTool(econ.current);
+  player.ride(econ.mount);
+  renderHotbar();
 }
-apiary.syncBears(loadedExtra?.bearHomes);
-fairies.syncFairies(); // wayfarers
 
 /** Planet-wide restoration: bloomed share of all plantable land, and glades restored. */
 const planetTotal = world.glades.reduce((n, g) => n + g.total, 0);
@@ -606,7 +622,6 @@ type MenuKind = 'shop' | 'rings' | 'travel';
 let menuKind: MenuKind | null = null;
 let started = false;
 let mouseDown = false;
-let resetArmed = false;
 let skipSave = false;
 
 function lock() {
@@ -701,7 +716,7 @@ function updateRings() {
 }
 
 function saveNow() {
-  if (skipSave) return;
+  if (skipSave || activeSlot < 0) return;
   const extra: SaveExtra = {
     caches: stations.caches.map((c) => ({ x: c.x, z: c.z, stock: c.stock })),
     hives: apiary.hives.map((h) => ({ x: h.x, z: h.z, honey: h.honey })),
@@ -710,29 +725,102 @@ function saveNow() {
     bearHomes: apiary.bearHomes(),
     stones: waystones.stones.slice(1).map((w) => ({ x: w.x, z: w.z })),
     trampled: [...scenery.trampled],
+    playTime,
   };
   garden.save(player, extra);
 }
 
-$('play').onclick = () => {
+// ---------- home screen: save slots ----------
+function ago(ms: number) {
+  const s = (Date.now() - ms) / 1000;
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  const d = Math.floor(s / 86400);
+  return d === 1 ? 'yesterday' : `${d} days ago`;
+}
+function duration(sec: number) {
+  const m = Math.floor(sec / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+function renderSlots() {
+  const box = $('slots');
+  box.innerHTML = '';
+  const last = lastSlot();
+  for (let i = 0; i < SLOT_COUNT; i++) {
+    const info = slotInfo(i);
+    const row = document.createElement('div');
+    row.className = 'save-slot' + (info ? '' : ' empty') + (info && i === last ? ' last' : '');
+    const text = document.createElement('div');
+    text.className = 'save-slot-text';
+    if (info) {
+      const pct =
+        info.planetPct === null
+          ? ''
+          : ` · ${info.planetPct < 10 ? info.planetPct.toFixed(1) : Math.floor(info.planetPct)}% restored`;
+      const bits = [
+        `${info.glades} glade${info.glades === 1 ? '' : 's'}`,
+        `✿ ${fmt(info.pollen)}`,
+        ...(info.honey > 0 ? [`${HONEY} ${fmt(info.honey)}`] : []),
+        ...(info.playTime >= 60 ? [`played ${duration(info.playTime)}`] : []),
+        ...(info.savedAt ? [ago(info.savedAt)] : []),
+      ];
+      text.innerHTML = `<b>World ${i + 1}${pct}</b><span class="save-slot-meta">${bits.join(' · ')}</span>`;
+    } else {
+      text.innerHTML = `<b>World ${i + 1}</b><span class="save-slot-meta">Empty: a grey planet waiting for seeds</span>`;
+    }
+    const go = document.createElement('button');
+    go.className = 'save-slot-play';
+    go.textContent = info ? 'Continue' : 'New world';
+    go.onclick = () => startGame(i);
+    row.append(text, go);
+    if (info) {
+      const del = document.createElement('button');
+      del.className = 'save-slot-delete';
+      del.textContent = 'Delete';
+      let armed = false;
+      let timer = 0;
+      del.onclick = () => {
+        if (!armed) {
+          armed = true;
+          del.textContent = 'Delete forever?';
+          del.classList.add('armed');
+          timer = window.setTimeout(() => {
+            armed = false;
+            del.textContent = 'Delete';
+            del.classList.remove('armed');
+          }, 3000);
+          return;
+        }
+        clearTimeout(timer);
+        deleteSlot(i);
+        renderSlots();
+      };
+      row.append(del);
+    }
+    box.append(row);
+  }
+}
+renderSlots();
+
+function startGame(i: number) {
+  if (started) return;
+  setLastSlot(i);
+  loadSlot(i);
   started = true;
   $('start').classList.add('hidden');
   chimes.resume();
   lock();
   if (!loaded) toast('Hold the mouse to press a seed into the dirt.');
-};
+}
 canvas.addEventListener('click', () => {
   if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
 });
-$('reset').onclick = () => {
-  if (resetArmed) {
-    Garden.wipe();
-    skipSave = true;
-    location.reload();
-  } else {
-    resetArmed = true;
-    $('reset').textContent = 'Click again to wipe everything';
-  }
+$('home').onclick = () => {
+  saveNow();
+  skipSave = true;
+  location.reload(); // back to the home screen (it shows on every load)
 };
 
 addEventListener('mousemove', (e) => {
@@ -966,6 +1054,7 @@ function frame() {
     if (toastTimer <= 0) $('toast').classList.remove('show');
   }
 
+  if (started) playTime += dt;
   saveTimer += dt;
   if (saveTimer > 10) {
     saveTimer = 0;

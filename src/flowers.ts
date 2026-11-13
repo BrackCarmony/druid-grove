@@ -379,6 +379,12 @@ export class Flowers {
     }
   }
 
+  /** Drop every streamed chunk so they rebuild from the current bloom state (after loading a save). */
+  reset() {
+    for (const [key, ch] of this.chunks) this.unload(key, ch);
+    this.recent.clear();
+  }
+
   get loadedChunks() {
     return this.chunks.size;
   }
