@@ -702,3 +702,8 @@ button.link:hover,
     grid-column: 1 / 3;
   }
 }
+
+#rings-clear {
+  display: block;
+  margin: 0 0 10px auto;
+}
