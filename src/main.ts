@@ -286,9 +286,10 @@ function renderShop() {
   }
 
   // The wayfarer: an expensive fairy with no ring, roaming the planet for missed ground.
+  // Listed last: early on, ring fairies are the better buy.
   const cost = econ.wayfarerCost;
   const needs = !econ.has('ring');
-  $('shop-fairies').prepend(
+  $('shop-fairies').append(
     card(
       `Wayfarer Fairy <span class="desc">${econ.wayfarers} roaming</span>`,
       `No ring and no range: wanders the whole planet planting any bare ground no ring covers. Flies faster and carries twice as many seeds.`,

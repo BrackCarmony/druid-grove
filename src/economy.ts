@@ -324,7 +324,7 @@ export function fairyCarry(l: number) {
 }
 
 /** Bees forage blooms within `radius` of the hive; each bloomed tile makes `perFlower` honey/s. */
-export const HIVE = { radius: 22, perFlower: 0.004, cap: 120, baseCost: 1200, growth: 1.6 };
+export const HIVE = { radius: 22, perFlower: 0.004, cap: 120, baseCost: 1200, growth: 1.15 };
 export const BEAR = { carry: 30, speed: 4.5, baseCost: 600, growth: 1.45 };
 export const FAIRY = { perRing: 3, carry: 40, speed: 9, radius: 36, power: 1.5, plantRadius: 1.1 };
 export const RING = { baseCost: 60, growth: 1.7 };
