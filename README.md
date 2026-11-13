@@ -101,3 +101,14 @@ on the droplet, which keeps a year of weekly logs. No IP addresses are stored.
   was already pulled.
 - `npm run perf:setup`: (re)install the server side from `deploy/` (idempotent).
 - Players can opt out with `?perf=off` (and back in with `?perf=on`). Dev builds don't send.
+
+## Credits
+
+- Music: "forest" by syncopika (greenbearmusic), from
+  [OpenGameArt](https://opengameart.org/content/forest), licensed
+  [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). Used unmodified (looped).
+  File: `public/music/forest.mp3`.
+- Font: [Fredoka](https://fonts.google.com/specimen/Fredoka), SIL Open Font License 1.1.
+- Engine: [three.js](https://threejs.org), MIT License.
+
+The in-game credits page (home screen → Credits) lists the same.

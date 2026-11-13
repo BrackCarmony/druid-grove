@@ -130,6 +130,8 @@ export class DeadScenery {
 const TREE_DIST = 330;
 
 export class HeartTrees {
+  /** Render-distance scale (1 = full). */
+  viewScale = 1;
   group = new THREE.Group();
   private cores: THREE.InstancedMesh;
   private beams: THREE.InstancedMesh;
@@ -250,7 +252,7 @@ export class HeartTrees {
     }
     if (moved) this.cores.instanceMatrix.needsUpdate = true;
     for (const t of this.trees) {
-      const vis = wdist(t.x, t.z, cam.x, cam.z) < TREE_DIST;
+      const vis = wdist(t.x, t.z, cam.x, cam.z) < TREE_DIST * this.viewScale;
       t.obj.visible = vis;
       if (!vis) continue;
       if (t.grown) continue;

@@ -3,8 +3,9 @@ import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
 import { Perf } from './perf';
+import { onSettings, settings, updateSettings, VIEW_SCALE, ViewDistance } from './settings';
 import { deleteSlot, lastSlot, setLastSlot, SLOT_COUNT, slotInfo, slotKey } from './slots';
-import { planetizeTree } from './planet';
+import { planetizeTree, planetUniforms } from './planet';
 import { Waystone, Waystones } from './waystones';
 import { FairyRings, Ring } from './fairies';
 import { Chimes, Particles } from './fx';
@@ -15,7 +16,7 @@ import { DeadScenery, HeartTrees } from './props';
 import { createSky } from './sky';
 import { Stations } from './stations';
 import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
-import { SOIL_NAMES, Soil, wdist, World, wrap } from './world';
+import { HALF, SOIL_NAMES, Soil, wdist, World, wrap } from './world';
 
 /** Inline icons (drawn in style.css). */
 const HONEY = '<i class="i-honey"></i>';
@@ -804,6 +805,60 @@ function renderSlots() {
 }
 renderSlots();
 
+// ---------- home screen: settings and credits ----------
+const MUSIC_URL = import.meta.env.BASE_URL + 'music/forest.mp3';
+let viewScale = 1;
+onSettings((s) => {
+  chimes.setVolumes(s.sfx, s.music);
+  viewScale = VIEW_SCALE[s.view];
+  flowers.viewScale = viewScale;
+  hearts.viewScale = viewScale;
+  terrain.setRadius(HALF * viewScale);
+});
+// Browsers only allow audio after the player interacts, so the music starts on the first click or key.
+const startMusic = () => {
+  void chimes.startMusic(MUSIC_URL);
+  removeEventListener('pointerdown', startMusic);
+  removeEventListener('keydown', startMusic);
+};
+addEventListener('pointerdown', startMusic);
+addEventListener('keydown', startMusic);
+
+function showHome(panel: 'main' | 'settings' | 'credits') {
+  $('home-main').classList.toggle('hidden', panel !== 'main');
+  $('home-settings').classList.toggle('hidden', panel !== 'settings');
+  $('home-credits').classList.toggle('hidden', panel !== 'credits');
+}
+$('open-settings').onclick = () => showHome('settings');
+$('open-credits').onclick = () => showHome('credits');
+for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back')) b.onclick = () => showHome('main');
+
+function bindSlider(id: 'music' | 'sfx') {
+  const input = $<HTMLInputElement>(`set-${id}`);
+  const out = $(`set-${id}-v`);
+  input.value = String(Math.round(settings[id] * 100));
+  out.textContent = `${input.value}%`;
+  input.oninput = () => {
+    out.textContent = `${input.value}%`;
+    updateSettings({ [id]: Number(input.value) / 100 });
+  };
+  // Let the player hear the new effects level.
+  if (id === 'sfx') input.onchange = () => chimes.bloom();
+}
+bindSlider('music');
+bindSlider('sfx');
+const viewButtons = [...$('set-view').querySelectorAll<HTMLButtonElement>('button')];
+function renderView() {
+  for (const b of viewButtons) b.classList.toggle('on', b.dataset.v === settings.view);
+}
+for (const b of viewButtons) {
+  b.onclick = () => {
+    updateSettings({ view: b.dataset.v as ViewDistance });
+    renderView();
+  };
+}
+renderView();
+
 function startGame(i: number) {
   if (started) return;
   setLastSlot(i);
@@ -870,7 +925,7 @@ addEventListener('keydown', (e) => {
     toast(econ.autoPlant ? 'Mount auto-planting on' : 'Mount auto-planting off');
   }
   if (e.code === 'KeyM') {
-    chimes.muted = !chimes.muted;
+    chimes.setMuted(!chimes.muted);
     toast(chimes.muted ? 'Sound off' : 'Sound on');
   }
 });
@@ -905,6 +960,7 @@ const perf = new Perf(renderer, () => ({
   zoom: Math.round(player.zoom),
   fp: player.firstPerson,
   menu: menuOpen,
+  view: settings.view,
 }));
 let firstFrame = true;
 
@@ -918,6 +974,7 @@ function frame() {
   perf.mark('player');
   // Thin the haze as the camera pulls back so the whole land is visible.
   const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
+  planetUniforms.uFogD.value = fogD;
   sharedUniforms.uFogDensity.value = fogD;
   (scene.fog as THREE.FogExp2).density = fogD;
   sky.position.set(camera.position.x, 0, camera.position.z);
@@ -1092,6 +1149,8 @@ frame();
   waystones,
   travel,
   perf,
+  chimes,
+  terrain,
   scenery,
   buildDen,
   buildStone,

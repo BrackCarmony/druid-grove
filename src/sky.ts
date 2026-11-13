@@ -34,7 +34,7 @@ export function createSky(): THREE.Group {
           vec3 mid = vec3(0.45,0.30,0.52);
           vec3 col = mix(uFogColor, mid, smoothstep(0.0, 0.25, h));
           col = mix(col, top, smoothstep(0.2, 0.75, h));
-          col = mix(col, uFogColor*0.8, smoothstep(0.0,-0.2,h));
+          col = mix(col, uFogColor, smoothstep(0.0,-0.2,h)); // matches the haze at the edge of the drawn world
           float sd = max(dot(d, uSunDir), 0.0);
           col += vec3(1.0,0.62,0.38) * pow(sd, 8.0) * 0.55;
           col += vec3(1.0,0.9,0.7) * smoothstep(0.9985, 0.9993, sd);

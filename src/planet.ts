@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SIZE } from './world';
+import { HALF, SIZE } from './world';
 
 // Every object in the world goes through planetWarp() in its vertex shader:
 // 1. positions wrap around the camera, so whatever is nearest the short way round
@@ -9,6 +9,8 @@ import { SIZE } from './world';
 export const planetUniforms = {
   uWorldSize: { value: SIZE },
   uCurveR: { value: 900 }, // visual radius of curvature (m)
+  uDrawR: { value: HALF }, // render distance: things fade into the haze approaching this ground distance
+  uFogD: { value: 0.0065 }, // current fog density (mirrors scene.fog)
 };
 
 export const GLSL_PLANET = /* glsl */ `
@@ -35,8 +37,10 @@ vec4 mvPosition = vec4( transformed, 1.0 );
 #endif
 vec4 planetWorld = modelMatrix * mvPosition;
 planetWorld.xyz = planetWarp(planetWorld.xyz);
+float planetFlat = length(planetWorld.xz - cameraPosition.xz);
 mvPosition = viewMatrix * planetWorld;
 gl_Position = projectionMatrix * mvPosition;
+if (planetFlat > uDrawR) gl_Position = vec4(0.0, 0.0, 2.0, 1.0); // beyond render distance: clipped away
 `;
 
 /** Patch a built-in material so it wraps and curves with the planet. Safe to call twice. */
@@ -50,9 +54,16 @@ export function planetize(mat: THREE.Material) {
     prev(shader, renderer);
     shader.uniforms.uWorldSize = planetUniforms.uWorldSize;
     shader.uniforms.uCurveR = planetUniforms.uCurveR;
+    shader.uniforms.uDrawR = planetUniforms.uDrawR;
+    shader.uniforms.uFogD = planetUniforms.uFogD;
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\n${GLSL_PLANET}`)
-      .replace('#include <project_vertex>', WARPED_PROJECT);
+      .replace('#include <common>', `#include <common>\n${GLSL_PLANET}\nuniform float uDrawR, uFogD;`)
+      .replace('#include <project_vertex>', WARPED_PROJECT)
+      // Past the render distance, push the fog depth up so objects fade out with the ground.
+      .replace(
+        '#include <fog_vertex>',
+        '#include <fog_vertex>\n#ifdef USE_FOG\nvFogDepth = max(vFogDepth, smoothstep(uDrawR*0.8, uDrawR*0.97, planetFlat) * 3.0 / uFogD);\n#endif',
+      );
   };
   mat.customProgramCacheKey = () => 'planet|' + prevKey();
   mat.needsUpdate = true;

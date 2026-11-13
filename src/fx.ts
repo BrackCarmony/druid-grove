@@ -89,9 +89,19 @@ function makeDot() {
 
 const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
 
+const SFX_LEVEL = 0.22; // chimes at 100% effects volume
+const MUSIC_LEVEL = 0.55; // the track at 100% music volume
+
+/** Sound effects (synthesised chimes) and the looping music track, each with its own volume. */
 export class Chimes {
   private ctx: AudioContext | null = null;
-  private master: GainNode | null = null;
+  private out: GainNode | null = null; // everything; M mutes here
+  private master: GainNode | null = null; // sound effects
+  private musicGain: GainNode | null = null;
+  private music: AudioBufferSourceNode | null = null;
+  private musicLoading = false;
+  private sfxVol = 1;
+  private musicVol = 0.5;
   private lastBloom = 0;
   private step = 0;
   muted = false;
@@ -99,15 +109,60 @@ export class Chimes {
   private ensure() {
     if (!this.ctx) {
       this.ctx = new AudioContext();
+      this.out = this.ctx.createGain();
+      this.out.gain.value = this.muted ? 0 : 1;
+      this.out.connect(this.ctx.destination);
       this.master = this.ctx.createGain();
-      this.master.gain.value = 0.22;
-      this.master.connect(this.ctx.destination);
+      this.master.gain.value = SFX_LEVEL * this.sfxVol;
+      this.master.connect(this.out);
+      this.musicGain = this.ctx.createGain();
+      this.musicGain.gain.value = 0;
+      this.musicGain.connect(this.out);
     }
     return this.ctx;
   }
 
   resume() {
     this.ensure().resume();
+  }
+
+  setVolumes(sfx: number, music: number) {
+    this.sfxVol = sfx;
+    this.musicVol = music;
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.master!.gain.setTargetAtTime(SFX_LEVEL * sfx, t, 0.05);
+    if (this.music) this.musicGain!.gain.setTargetAtTime(MUSIC_LEVEL * music, t, 0.1);
+  }
+
+  setMuted(m: boolean) {
+    this.muted = m;
+    if (this.ctx) this.out!.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.05);
+  }
+
+  /** Start the looping music (call from a user gesture; safe to call repeatedly). */
+  async startMusic(url: string) {
+    const ctx = this.ensure();
+    void ctx.resume();
+    if (this.music || this.musicLoading) return;
+    this.musicLoading = true;
+    try {
+      const data = await (await fetch(url)).arrayBuffer();
+      const buf = await ctx.decodeAudioData(data);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true; // buffer loops are gapless, unlike <audio loop>
+      src.connect(this.musicGain!);
+      src.start();
+      this.music = src;
+      // Fade in gently.
+      this.musicGain!.gain.setValueAtTime(0, ctx.currentTime);
+      this.musicGain!.gain.linearRampToValueAtTime(MUSIC_LEVEL * this.musicVol, ctx.currentTime + 4);
+    } catch (e) {
+      console.warn('Music failed to load', e);
+    } finally {
+      this.musicLoading = false;
+    }
   }
 
   private note(semi: number, dur: number, vol: number, type: OscillatorType = 'sine') {

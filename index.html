@@ -124,13 +124,79 @@
     <div id="start">
       <div class="start-inner">
         <h1>Druid Grove</h1>
-        <p>
-          The moon broke and the whole planet went grey. You are the last wood nymph, with a pocketful of seeds and a
-          pair of tweezers. When your satchel runs dry, head back to the glowing Seed Hollow or any waystone you have
-          raised.
-        </p>
-        <div id="slots"></div>
-        <p class="small">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+        <div id="home-main">
+          <p>
+            The moon broke and the whole planet went grey. You are the last wood nymph, with a pocketful of seeds and a
+            pair of tweezers. When your satchel runs dry, head back to the glowing Seed Hollow or any waystone you have
+            raised.
+          </p>
+          <div id="slots"></div>
+          <div class="home-links">
+            <button class="link" id="open-settings">Settings</button>
+            <button class="link" id="open-credits">Credits</button>
+          </div>
+          <p class="small">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+        </div>
+
+        <div id="home-settings" class="home-panel hidden">
+          <h2>Settings</h2>
+          <label class="setting">
+            <span>Music</span>
+            <input type="range" id="set-music" min="0" max="100" step="1" />
+            <output id="set-music-v"></output>
+          </label>
+          <label class="setting">
+            <span>Sound effects</span>
+            <input type="range" id="set-sfx" min="0" max="100" step="1" />
+            <output id="set-sfx-v"></output>
+          </label>
+          <div class="setting">
+            <span>Render distance</span>
+            <div class="seg" id="set-view">
+              <button data-v="low">Low</button>
+              <button data-v="medium">Medium</button>
+              <button data-v="high">High</button>
+            </div>
+          </div>
+          <p class="small">
+            Lower the render distance if the game stutters: it draws less of the planet, flowers and trees far away.
+            <b>M</b> mutes all sound in game.
+          </p>
+          <button class="back">Back</button>
+        </div>
+
+        <div id="home-credits" class="home-panel hidden">
+          <h2>Credits</h2>
+          <dl class="credits">
+            <dt>Game</dt>
+            <dd>Made by Brack Carmony, built with Claude Code</dd>
+            <dt>Music</dt>
+            <dd>
+              “forest” by
+              <a href="https://opengameart.org/users/syncopika" target="_blank" rel="noopener">syncopika</a>
+              (<a href="https://greenbearmusic.bandcamp.com/album/bgm-fun-vol-5" target="_blank" rel="noopener"
+                >greenbearmusic</a
+              >), from <a href="https://opengameart.org/content/forest" target="_blank" rel="noopener">OpenGameArt</a>,
+              licensed
+              <a href="https://creativecommons.org/licenses/by/3.0/" target="_blank" rel="noopener">CC BY 3.0</a>. Used
+              unmodified (looped).
+            </dd>
+            <dt>Font</dt>
+            <dd>
+              <a href="https://fonts.google.com/specimen/Fredoka" target="_blank" rel="noopener">Fredoka</a>, SIL Open
+              Font License 1.1
+            </dd>
+            <dt>Engine</dt>
+            <dd><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>, MIT License</dd>
+            <dt>Source</dt>
+            <dd>
+              <a href="https://github.com/BrackCarmony/druid-grove" target="_blank" rel="noopener"
+                >github.com/BrackCarmony/druid-grove</a
+              >
+            </dd>
+          </dl>
+          <button class="back">Back</button>
+        </div>
       </div>
     </div>
 

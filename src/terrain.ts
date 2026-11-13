@@ -58,26 +58,21 @@ float pcracks(vec2 p, float per){
 }
 `;
 
-/** A grid that's fine near the centre and coarser further out (spacing 1/2/4/8 m). */
-function axisCoords(): number[] {
+/** A grid that's fine near the centre and coarser further out (spacing 1/2/4/8 m), out to ±R. */
+function axisCoords(R: number): number[] {
   const out: number[] = [];
-  let x = -HALF;
-  while (x < HALF) {
+  let x = -R;
+  while (x < R) {
     out.push(x);
     const a = Math.min(Math.abs(x), Math.abs(x + 1));
     x += a < 64 ? 1 : a < 128 ? 2 : a < 256 ? 4 : 8;
   }
-  out.push(HALF);
+  out.push(R);
   return out;
 }
 
-export interface Terrain {
-  mesh: THREE.Mesh;
-  update(camera: THREE.Camera): void;
-}
-
-export function createTerrain(world: World): Terrain {
-  const ax = axisCoords();
+function gridGeometry(R: number) {
+  const ax = axisCoords(R);
   const n = ax.length;
   const pos = new Float32Array(n * n * 3);
   for (let j = 0; j < n; j++) {
@@ -102,6 +97,20 @@ export function createTerrain(world: World): Terrain {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
+  return geo;
+}
+
+export interface Terrain {
+  mesh: THREE.Mesh;
+  update(camera: THREE.Camera): void;
+  /** Draw the ground out to this radius (m); the rim is hazed out. */
+  setRadius(r: number): void;
+}
+
+export function createTerrain(world: World): Terrain {
+  let radius = HALF;
+  const geo = gridGeometry(radius);
+  const drawR = planetUniforms.uDrawR;
 
   const gridOffset = { value: new THREE.Vector2() };
   const mat = new THREE.ShaderMaterial({
@@ -148,7 +157,7 @@ export function createTerrain(world: World): Terrain {
     fragmentShader: /* glsl */ `
       uniform sampler2D uState;
       uniform sampler2D uStatic;
-      uniform float uHalf, uSize, uTime, uFogDensity;
+      uniform float uHalf, uSize, uTime, uFogDensity, uDrawR;
       uniform vec3 uSunDir, uFogColor;
       uniform vec3 uCursor;
       uniform float uCursorState;
@@ -158,6 +167,7 @@ export function createTerrain(world: World): Terrain {
       varying float vFlat;
       ${GLSL_PNOISE}
       void main(){
+        if (vFlat > uDrawR*0.97) discard; // outside the render distance (the grid is square)
         vec2 p = vWorld.xz;
         vec2 uv = (p + uHalf) / uSize;
         vec4 st = texture2D(uState, uv);
@@ -228,7 +238,7 @@ export function createTerrain(world: World): Terrain {
 
         float fog = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
         // Haze out the far rim of the drawn disc (only visible from high up).
-        fog = max(fog, smoothstep(uHalf*0.8, uHalf*0.97, vFlat));
+        fog = max(fog, smoothstep(uDrawR*0.8, uDrawR*0.97, vFlat));
         gl_FragColor = vec4(mix(lit, uFogColor, fog), 1.0);
       }
     `,
@@ -240,6 +250,14 @@ export function createTerrain(world: World): Terrain {
   mesh.userData.noPlanet = true; // its shader already warps
   return {
     mesh,
+    setRadius(r) {
+      r = Math.min(HALF, Math.round(r / 8) * 8);
+      if (r === radius) return;
+      radius = r;
+      drawR.value = r;
+      mesh.geometry.dispose();
+      mesh.geometry = gridGeometry(r);
+    },
     update(camera) {
       // Snap to the coarsest grid spacing so vertices don't swim as the camera moves.
       gridOffset.value.set(Math.round(camera.position.x / 8) * 8, Math.round(camera.position.z / 8) * 8);

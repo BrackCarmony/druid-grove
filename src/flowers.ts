@@ -12,6 +12,7 @@ import { HALF, SIZE, Soil, World, wrap } from './world';
 
 const CHUNK = 32; // tiles per chunk side
 const NCH = SIZE / CHUNK;
+// Distances at full render distance; scaled down by the render-distance setting.
 const LOAD_DIST = 185;
 const UNLOAD_DIST = 240;
 const DRAW_DIST = 150;
@@ -223,6 +224,8 @@ export class Flowers {
   private flowerMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private tuftMat = new THREE.MeshLambertMaterial({ color: 0x6aa83f });
   private chunks = new Map<number, Chunk>();
+  /** Render-distance scale (1 = full). */
+  viewScale = 1;
   private dirty = new Set<Chunk>();
   /** Bloom times of tiles that are still mid grow-in, so a rebuilt chunk doesn't skip the animation. */
   private recent = new Map<number, number>();
@@ -336,10 +339,11 @@ export class Flowers {
     const cam = camera.position;
     // Unload far chunks.
     for (const [key, ch] of this.chunks) {
-      if (Math.hypot(wrap(ch.x - cam.x), wrap(ch.z - cam.z)) > UNLOAD_DIST) this.unload(key, ch);
+      if (Math.hypot(wrap(ch.x - cam.x), wrap(ch.z - cam.z)) > UNLOAD_DIST * this.viewScale) this.unload(key, ch);
     }
     // Load the nearest missing chunks, a few per frame.
-    const r = Math.ceil(LOAD_DIST / CHUNK) + 1;
+    const loadDist = LOAD_DIST * this.viewScale;
+    const r = Math.ceil(loadDist / CHUNK) + 1;
     const ccx = Math.floor((wrap(cam.x) + HALF) / CHUNK);
     const ccz = Math.floor((wrap(cam.z) + HALF) / CHUNK);
     const want: [number, number, number][] = [];
@@ -352,7 +356,7 @@ export class Flowers {
         const x = cx * CHUNK - HALF + CHUNK / 2;
         const z = cz * CHUNK - HALF + CHUNK / 2;
         const d = Math.hypot(wrap(x - cam.x), wrap(z - cam.z));
-        if (d < LOAD_DIST) want.push([d, cx, cz]);
+        if (d < loadDist) want.push([d, cx, cz]);
       }
     }
     want.sort((a, b) => a[0] - b[0]);
@@ -373,9 +377,10 @@ export class Flowers {
       const d = Math.hypot(x - cam.x, z - cam.z) - CHUNK * 0.7;
       this.box.min.set(x - CHUNK / 2, -80, z - CHUNK / 2);
       this.box.max.set(x + CHUNK / 2, 80, z + CHUNK / 2);
-      const vis = d < DRAW_DIST && this.frustum.intersectsBox(this.box);
-      ch.flowers.setDetail(d < LOD_DIST, vis);
-      ch.tufts.setDetail(true, vis && d < TUFT_DIST);
+      const s = this.viewScale;
+      const vis = d < DRAW_DIST * s && this.frustum.intersectsBox(this.box);
+      ch.flowers.setDetail(d < LOD_DIST * s, vis);
+      ch.tufts.setDetail(true, vis && d < TUFT_DIST * s);
     }
   }
 
