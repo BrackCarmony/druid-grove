@@ -341,7 +341,8 @@ export const RING = { baseCost: 60, growth: 1.7 };
 /** Ringless fairies that roam the whole planet: faster, carry more, and cost a lot of honey. */
 export const WAYFARER = { baseCost: 1500, growth: 1.6, speedMul: 1.7, carryMul: 2 };
 export const DEN = { baseCost: 5000, growth: 1.8 };
-export const WAYSTONE = { baseCost: 1500, growth: 1.5 };
+// Waystones are teleports and bottomless seed hubs, so they get pricey fast (~15 by the late game).
+export const WAYSTONE = { baseCost: 10000, growth: 1.9 };
 
 export function satchelCap(lvl: number) {
   return Math.round((30 * Math.pow(1.6, lvl)) / 5) * 5;
