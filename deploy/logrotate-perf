@@ -1,0 +1,14 @@
+# Keep a year of Druid Grove perf reports (the default nginx rotation only keeps 14 days).
+/var/log/druid-grove/*.log {
+	weekly
+	rotate 52
+	missingok
+	notifempty
+	compress
+	delaycompress
+	create 0640 www-data adm
+	sharedscripts
+	postrotate
+		invoke-rc.d nginx rotate >/dev/null 2>&1
+	endscript
+}

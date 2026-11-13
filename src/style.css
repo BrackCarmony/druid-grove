@@ -545,3 +545,18 @@ button.remove {
     opacity: 0.85;
   }
 }
+
+/* F3 performance overlay */
+#perf-overlay {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 50;
+  margin: 0;
+  padding: 8px 10px;
+  font: 12px/1.35 ui-monospace, Menlo, monospace;
+  color: #f4efe6;
+  background: rgba(20, 14, 24, 0.72);
+  border-radius: 6px;
+  pointer-events: none;
+}

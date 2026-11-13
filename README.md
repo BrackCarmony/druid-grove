@@ -84,3 +84,20 @@ In the browser console, `window.dg` exposes the world, economy, garden and playe
 1. Early automation "trap": field mice and ladybugs that need burrow + mycelium hookups
 1. Late game: Bloomstriders (big long-legged moss creatures, hundreds of them) flinging pollen pods into hive catchers
 1. Animal tenders bouncing around the hives; art, sound, and balance passes
+
+## Performance telemetry
+
+The game profiles every frame (`src/perf.ts`). The main loop marks each chunk of work
+(player, garden, fairies, flowers, render, …), and every 30 s the deployed build sends a
+small anonymous summary to `/api/perf`: frame-time percentiles, JS time per section, GPU
+render time (where the browser supports timer queries), draw calls, device, and game state
+such as fairy and bear counts. nginx appends each report to `/var/log/druid-grove/perf.log`
+on the droplet, which keeps a year of weekly logs. No IP addresses are stored.
+
+- **F3** in game: live overlay with the same numbers.
+- `npm run perf`: pull the reports down to `perf-data/` and print a summary (slowest
+  sections, fps by device, how things scale with helpers, progress and zoom).
+  `npm run perf:report -- --since 2026-11-13 --build abc1234` re-runs the summary on what
+  was already pulled.
+- `npm run perf:setup`: (re)install the server side from `deploy/` (idempotent).
+- Players can opt out with `?perf=off` (and back in with `?perf=on`). Dev builds don't send.

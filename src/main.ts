@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { Perf } from './perf';
 import { planetizeTree } from './planet';
 import { Waystone, Waystones } from './waystones';
 import { FairyRings, Ring } from './fairies';
@@ -36,7 +37,9 @@ const sun = new THREE.DirectionalLight(0xffdcb8, 2.2);
 sun.position.copy(sunDir).multiplyScalar(100);
 scene.add(sun, new THREE.HemisphereLight(0xc7a6d6, 0x5a4636, 1.1));
 
+const tScript = performance.now();
 const world = new World();
+const tWorld = performance.now();
 const colliders = new Colliders();
 const terrain = createTerrain(world);
 scene.add(terrain.mesh);
@@ -110,6 +113,7 @@ fairies.syncFairies(); // wayfarers
 
 /** Planet-wide restoration: bloomed share of all plantable land, and glades restored. */
 const planetTotal = world.glades.reduce((n, g) => n + g.total, 0);
+const tReady = performance.now();
 const realGlades = world.glades.filter((g) => g.total > 0).length;
 function planetProgress() {
   let bloomed = 0;
@@ -730,6 +734,10 @@ addEventListener('wheel', (e) => {
 addEventListener('keydown', (e) => {
   if (!started || e.repeat) return;
   if (e.code === 'Escape' && menuOpen) return openMenu(null);
+  if (e.code === 'F3') {
+    e.preventDefault();
+    return perf.toggleOverlay();
+  }
   if (e.code === 'KeyE') return openMenu(menuKind === 'shop' ? null : 'shop');
   if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
   if (menuOpen) return;
@@ -779,12 +787,31 @@ let hudTimer = 0;
 let wasFull = true;
 renderHotbar();
 
+const perf = new Perf(renderer, () => ({
+  planetPct: Math.round(planetProgress().pct * 100) / 100,
+  glades: planetProgress().done,
+  hives: apiary.hives.length,
+  bears: apiary.bears.length,
+  rings: fairies.rings.length,
+  fairies: fairies.rings.reduce((n, r) => n + r.fairies.length, 0),
+  wayfarers: econ.wayfarers,
+  caches: stations.caches.length,
+  stones: waystones.stones.length,
+  mount: econ.mount?.id ?? '',
+  zoom: Math.round(player.zoom),
+  fp: player.firstPerson,
+  menu: menuOpen,
+}));
+let firstFrame = true;
+
 function frame() {
+  perf.begin();
   const dt = Math.min(clock.getDelta(), 0.05);
   const time = clock.elapsedTime;
   sharedUniforms.uTime.value = time;
 
   if (!menuOpen) player.update(dt, time);
+  perf.mark('player');
   // Thin the haze as the camera pulls back so the whole land is visible.
   const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
   sharedUniforms.uFogDensity.value = fogD;
@@ -835,12 +862,15 @@ function frame() {
       stationText = `${ring.label} · ${ring.fairies.length} fairies · ${fmt(ring.left)} tiles left to plant`;
     }
   }
+  perf.mark('tools');
   const full = econ.allSeedsFull;
   if ((src || waystones.nearby(player.pos)) && full && !wasFull) chimes.purchase();
   wasFull = full;
 
   garden.update(dt, time);
+  perf.mark('garden');
   stations.update(dt, time, player.pos);
+  perf.mark('stations');
   apiary.update(dt, time, player.pos, (n) => {
     econ.addHoney(n);
     const el = $('honey');
@@ -848,12 +878,17 @@ function frame() {
     void el.offsetWidth;
     el.classList.add('pulse');
   });
+  perf.mark('apiary');
   fairies.update(dt, time, player.pos);
+  perf.mark('fairies');
   hearts.update(time, camera.position);
   waystones.update(time);
   particles.update(dt, time);
+  perf.mark('props');
   world.flush();
+  perf.mark('worldFlush');
   flowers.update(camera, time);
+  perf.mark('flowers');
 
   // HUD (throttled)
   hudTimer -= dt;
@@ -902,6 +937,7 @@ function frame() {
       $('shop-honey').textContent = fmt(econ.honey);
     }
   }
+  perf.mark('hud');
   if (toastTimer > 0) {
     toastTimer -= dt;
     if (toastTimer <= 0) $('toast').classList.remove('show');
@@ -912,9 +948,16 @@ function frame() {
     saveTimer = 0;
     saveNow();
   }
+  perf.mark('save');
 
   planetizeTree(scene); // new objects pick up the planet wrap + curve before they draw
-  renderer.render(scene, camera);
+  perf.mark('planetize');
+  perf.render(scene, camera);
+  perf.end();
+  if (firstFrame) {
+    firstFrame = false;
+    perf.load({ script: tScript, world: tWorld, ready: tReady, firstFrame: performance.now() });
+  }
   requestAnimationFrame(frame);
 }
 frame();
@@ -936,6 +979,7 @@ frame();
   fairies,
   waystones,
   travel,
+  perf,
   buildDen,
   buildStone,
   get mouseDown() {
