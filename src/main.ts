@@ -660,8 +660,40 @@ function ringStatus(r: Ring) {
   return `${r.fairies.length} fairies · ${where}<br>${work}`;
 }
 
+/** Honey back for removing `n` rings: the prices of the last n rings bought. */
+function ringRefund(n: number) {
+  let total = 0;
+  for (let k = 1; k <= n; k++) total += Math.ceil(RING.baseCost * Math.pow(RING.growth, econ.ringsBuilt - k));
+  return total;
+}
+
+const finishedRings = () => fairies.rings.filter((r) => r.left === 0 && r.locked === 0);
+
 function renderRings() {
   fairies.refreshCounts();
+  // Remove every finished ring in one go (two clicks).
+  const done = finishedRings();
+  const clear = $<HTMLButtonElement>('rings-clear');
+  clear.classList.toggle('hidden', !done.length);
+  const rs = done.length === 1 ? '' : 's';
+  clear.innerHTML = `Remove ${done.length} finished ring${rs} (+${HONEY} ${fmt(ringRefund(done.length))})`;
+  let clearArmed = false;
+  clear.onclick = () => {
+    if (!clearArmed) {
+      clearArmed = true;
+      clear.textContent = `Click again to remove ${done.length} ring${rs}`;
+      return;
+    }
+    fairies.refreshCounts();
+    const now = finishedRings();
+    const refund = ringRefund(now.length);
+    for (const r of now) fairies.remove(r);
+    econ.ringsBuilt -= now.length;
+    econ.honey += refund;
+    chimes.purchase();
+    toast(`${now.length} finished ring${now.length === 1 ? '' : 's'} removed. ${HONEY} ${fmt(refund)} returned. Build them somewhere new with R.`);
+    renderRings();
+  };
   const list = $('rings-list');
   list.innerHTML = '';
   ringRows = [];
