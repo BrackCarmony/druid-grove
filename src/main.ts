@@ -82,6 +82,7 @@ const fairies = new FairyRings(world, econ, garden, stations, particles);
 scene.add(fairies.group);
 const waystones = new Waystones(world, colliders);
 scene.add(waystones.group);
+stations.extraHubs = () => waystones.stones.map((w) => ({ x: w.x, z: w.z, label: w.label }));
 
 interface SaveExtra {
   caches: { x: number; z: number; stock: number }[];
@@ -776,14 +777,16 @@ function frame() {
   } else if (src?.kind === 'cache') {
     const used = econ.refill(Math.min(src.cache.stock, 1000 * dt));
     src.cache.stock -= used;
-    stationText = `${src.cache.label} · ${Math.floor(src.cache.stock)} / ${econ.cacheStockCap} seeds · ${econ.squirrelsPerCache} squirrel${econ.squirrelsPerCache > 1 ? 's' : ''}`;
+    stationText = `${src.cache.label} · ${Math.floor(src.cache.stock)} / ${econ.cacheStockCap} seeds · ${econ.squirrelsPerCache} squirrel${econ.squirrelsPerCache > 1 ? 's' : ''} fetching from ${src.cache.hub.replace('Waystone · ', 'the waystone at ')}`;
   }
   if (!src) {
     const ap = apiary.nearby(player.pos);
     const ring = fairies.nearby(player.pos);
     const stone = waystones.nearby(player.pos);
     if (stone) {
-      stationText = `${stone.label} · press T to travel`;
+      // Waystones are seed hubs too.
+      econ.refill(1500 * dt);
+      stationText = `${stone.label} · refilling seeds · press T to travel`;
     } else if (ap?.kind === 'den') {
       const n = apiary.bearsAt(ap.den);
       stationText = `${ap.den.label} · ${n} bear${n === 1 ? '' : 's'} here · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
@@ -795,7 +798,7 @@ function frame() {
     }
   }
   const full = econ.seeds >= econ.seedCap && (!mount || (econ.mountSeeds[mount.id] ?? 0) >= econ.mountCap(mount));
-  if (src && full && !wasFull) chimes.purchase();
+  if ((src || waystones.nearby(player.pos)) && full && !wasFull) chimes.purchase();
   wasFull = full;
 
   garden.update(dt, time);
@@ -844,7 +847,7 @@ function frame() {
     }
     let hint = '';
     if (mount) {
-      if (econ.activeSeeds < 1) hint = `The ${mount.name} is out of seeds. Ride back to the Hollow or a cache.`;
+      if (econ.activeSeeds < 1) hint = `The ${mount.name} is out of seeds. Ride to the Hollow, a waystone or a cache.`;
     } else if (mouseDown || ['locked', 'creek', 'empty'].includes(garden.aimStatus)) hint = garden.aimHint();
     $('hint').textContent = hint;
     $('crosshair').style.display = !mount && (player.firstPerson || player.zoom < 12) ? 'block' : 'none';

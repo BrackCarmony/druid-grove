@@ -302,7 +302,7 @@ export class Garden {
         return `${SOIL_NAMES[this.aimSoil]} is too hard. Needs ${u === 'worms' ? 'Earthworm Charm' : 'Moss Spores'}.`;
       }
       case 'empty':
-        return 'Out of seeds. Refill at the Seed Hollow or a squirrel cache.';
+        return 'Out of seeds. Refill at the Seed Hollow, a waystone or a squirrel cache.';
       case 'creek':
         return 'A dry creek bed. Restore the glade to bring water back.';
       default:

@@ -3,6 +3,7 @@ import { Colliders } from './colliders';
 import { wdist, World } from './world';
 
 // Waystones: standing-stone arches you can step through to any other waystone.
+// Each is also a bottomless seed hub (like the Seed Hollow), so they work as bases.
 // There's one at home; the rest the player builds out across the planet.
 
 const RANGE = 3.5;
@@ -62,6 +63,22 @@ function stoneModel() {
   );
   beam.position.y = 13;
   g.add(beam);
+  // Seed sacks and a spill of seed by the posts: this is a place to restock.
+  const seedMat = lam(0x9a6a3a);
+  const sackMat = lam(0xc9a87a);
+  for (const s of [-1, 1]) {
+    const sack = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), sackMat);
+    sack.scale.set(1, 1.15, 1);
+    sack.position.set(s * 2.1, 0.42, 0.55);
+    const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.18, 6), sackMat);
+    tie.position.set(s * 2.1, 0.95, 0.55);
+    g.add(sack, tie);
+    for (let i = 0; i < 6; i++) {
+      const seed = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1 + (i % 3) * 0.04, 0), seedMat);
+      seed.position.set(s * (1.7 + (i % 3) * 0.25), 0.08, 0.9 + Math.floor(i / 3) * 0.3);
+      g.add(seed);
+    }
+  }
   return g;
 }
 

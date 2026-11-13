@@ -36,11 +36,11 @@ npm run typecheck
 - Holding the mouse works the soil. Then the seed sprouts and blooms, and each bloom earns **pollen**.
 - Tools: **Tweezers** (one tile) → **Garden Glove** (small patch) → **Rake** (wide swath).
 - **Seeds are limited.** Each planted tile uses one seed from your satchel. Refill at the glowing **Seed Hollow** near the start. Bigger Satchel upgrades raise the cap.
-- **Squirrel caches** (B) are seed stations you place out in the world. Their squirrels run back and forth to the Hollow, so a far-off cache refills more slowly. The Family, Cheeks and Paws upgrades scale them up.
+- **Squirrel caches** (B menu) are seed stations you place out in the world. Their squirrels run back and forth to the nearest seed hub (the Hollow or a waystone), so a cache far from any hub refills more slowly. The Family, Cheeks and Paws upgrades scale them up.
 - **Mounts** (after the rake): the Mossback Tortoise and the Bramble Stag auto-plant a wide circle around themselves and carry their own large seed supply (Saddlebags upgrade).
 - Nimble Fingers also boosts mounts (+10% per level): a maxed Bramble Stag plants clay at a full gallop; stone still needs a slower pace.
 - **Beehives** (H) make honey from the bloomed tiles within 22m. Only one hive per glade, so they spread out across the land. **Bears** walk from their Bear Den to a full hive and carry the honey back. There's a den at home, and more can be built (40m apart), each arriving with a bear. The first bear comes with the first hive; hired bears move into the den with the most hives per bear.
-- **Waystones** (from the B menu) are standing-stone arches; stand in one and press T to travel to any other. There's one at home.
+- **Waystones** (from the B menu) are standing-stone arches and your outposts: stand in one and press T to travel to any other, and they're bottomless seed hubs like the Seed Hollow. Squirrels run to the nearest hub (Hollow or waystone), and fairies restock at hubs too. There's one at home.
 - **Honey** buys **fairy rings** (R) and fairy upgrades. Each ring's fairies fetch seeds from the nearest Seed Hollow or stocked squirrel cache, then plant the nearest unplanted ground within the ring's reach. **G** lists every ring with its tiles left; removing one refunds its honey so it can be rebuilt where there's work.
 - Rocks, stumps, heart trees and buildings have collision.
 - Bloom 90% of a glade to **restore** it: the rest flourishes outward from the heart, a heart tree grows, the creeks fill with water, and you get bonus pollen plus a permanent pollen multiplier.

@@ -292,12 +292,12 @@ export class FairyRings {
     return -1;
   }
 
-  /** Nearest place with seeds: the Hollow (bottomless) or a stocked squirrel cache. */
+  /** Nearest place with seeds: a hub (Hollow or waystone, bottomless) or a stocked squirrel cache. */
   private nearestSource(x: number, z: number) {
-    const h = this.stations.hollow;
+    const h = this.stations.nearestHub(x, z);
     let best: { x: number; z: number; cache: Cache | null } = {
       x: h.x,
-      z: h.z,
+      z: h.z + 2.6,
       cache: null,
     };
     let bestD = wdist(h.x, h.z, x, z);

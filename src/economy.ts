@@ -443,13 +443,13 @@ export class Economy {
   /** Top up the satchel (and the current mount) from a source. Returns seeds used. */
   refill(available: number): number {
     let used = 0;
-    const need = this.seedCap - this.seeds;
+    const need = Math.max(0, this.seedCap - this.seeds);
     const a = Math.min(need, available);
     this.seeds += a;
     used += a;
     const m = this.mount;
     if (m) {
-      const mNeed = this.mountCap(m) - (this.mountSeeds[m.id] ?? 0);
+      const mNeed = Math.max(0, this.mountCap(m) - (this.mountSeeds[m.id] ?? 0));
       const b = Math.min(mNeed, available - used);
       this.mountSeeds[m.id] = (this.mountSeeds[m.id] ?? 0) + b;
       used += b;

@@ -4,9 +4,15 @@ import { Colliders } from './colliders';
 import { Economy } from './economy';
 import { wdist, World, wrap } from './world';
 
-// Seed sources: the Seed Hollow at the start (endless seeds) and squirrel caches
-// the player builds. Each cache's squirrels run back and forth to the Hollow,
-// so a far-flung cache refills more slowly than one close to home.
+// Seed sources: seed hubs (the Seed Hollow at home plus every waystone, all
+// bottomless) and the squirrel caches the player builds. Each cache's squirrels
+// run back and forth to the nearest hub, so a cache far from any hub refills slowly.
+
+export interface SeedHub {
+  x: number;
+  z: number;
+  label: string;
+}
 
 const HOLLOW_RANGE = 4.5;
 const CACHE_RANGE = 3.5;
@@ -75,11 +81,14 @@ export interface Cache {
   obj: THREE.Group;
   squirrels: Squirrel[];
   label: string;
+  hub: string; // where its squirrels fetch from
 }
 
 export class Stations {
   group = new THREE.Group();
   hollow = new THREE.Vector3();
+  /** Other bottomless seed hubs (waystones); set by main. */
+  extraHubs: () => SeedHub[] = () => [];
   caches: Cache[] = [];
   private sqGeo = squirrelGeometry();
   private sqMat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -164,7 +173,7 @@ export class Stations {
     obj.position.set(x, y, z);
     this.group.add(obj);
     this.colliders.add(x, z, 0.7);
-    const cache: Cache = { x, z, stock, obj, squirrels: [], label: `Cache ${this.caches.length + 1}` };
+    const cache: Cache = { x, z, stock, obj, squirrels: [], label: `Cache ${this.caches.length + 1}`, hub: '' };
     this.caches.push(cache);
     this.syncSquirrels();
     return cache;
@@ -188,6 +197,24 @@ export class Stations {
   }
 
   /** Seeds within reach: returns the source the player is standing at, if any. */
+  get hubs(): SeedHub[] {
+    return [{ x: this.hollow.x, z: this.hollow.z, label: 'the Seed Hollow' }, ...this.extraHubs()];
+  }
+
+  /** The nearest bottomless seed source, the short way round. */
+  nearestHub(x: number, z: number): SeedHub {
+    let best!: SeedHub;
+    let bd = Infinity;
+    for (const h of this.hubs) {
+      const d = wdist(h.x, h.z, x, z);
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    return best;
+  }
+
   nearby(pos: THREE.Vector3): { kind: 'hollow' } | { kind: 'cache'; cache: Cache } | null {
     if (wdist(this.hollow.x, this.hollow.z, pos.x, pos.z) < HOLLOW_RANGE) return { kind: 'hollow' };
     for (const c of this.caches) {
@@ -201,11 +228,22 @@ export class Stations {
     const carry = this.econ.squirrelCarry;
     const speed = this.econ.squirrelSpeed;
     const fwd = new THREE.Vector3();
+    const hubs = this.hubs;
     for (const c of this.caches) {
-      const dist = Math.max(4, wdist(this.hollow.x, this.hollow.z, c.x, c.z));
-      // the short way round the planet
-      const dx = wrap(this.hollow.x - c.x) / dist;
-      const dz = wrap(this.hollow.z - c.z) / dist;
+      // Squirrels run to whichever hub is nearest, the short way round the planet.
+      let hub = hubs[0];
+      let hd = Infinity;
+      for (const h of hubs) {
+        const d = wdist(h.x, h.z, c.x, c.z);
+        if (d < hd) {
+          hd = d;
+          hub = h;
+        }
+      }
+      c.hub = hub.label;
+      const dist = Math.max(4, hd);
+      const dx = wrap(hub.x - c.x) / dist;
+      const dz = wrap(hub.z - c.z) / dist;
       for (const s of c.squirrels) {
         // Squirrels idle at a full cache, hopping in place.
         const idle = c.stock >= cap && s.phase === 'out' && s.t <= 0.001;
@@ -220,7 +258,7 @@ export class Stations {
             }
           }
         }
-        // position: out = cache -> hollow, back = hollow -> cache
+        // position: out = cache -> hub, back = hub -> cache
         const k = s.phase === 'out' ? s.t : 1 - s.t;
         const side = s.offset;
         let x = c.x + dx * dist * k - dz * side;
