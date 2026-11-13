@@ -15,6 +15,9 @@ import { Stations } from './stations';
 import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
 import { SOIL_NAMES, Soil, wdist, World, wrap } from './world';
 
+/** Inline icons (drawn in style.css). */
+const HONEY = '<i class="i-honey"></i>';
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 // ---------- scene ----------
@@ -61,7 +64,7 @@ scene.add(stations.group);
 let toastTimer = 0;
 function toast(msg: string, big = false) {
   const el = $('toast');
-  el.textContent = msg;
+  el.innerHTML = msg; // our own strings; may contain icon markup
   el.className = 'show' + (big ? ' big' : '');
   toastTimer = big ? 5 : 2.5;
 }
@@ -169,7 +172,7 @@ function card(name: string, desc: string, label: string, enabled: boolean, onBuy
   el.className = 'card';
   el.innerHTML = `<div class="name">${name}</div><div class="desc">${desc}</div>`;
   const b = document.createElement('button');
-  b.textContent = label;
+  b.innerHTML = label;
   b.disabled = !enabled;
   b.onclick = onBuy;
   el.appendChild(b);
@@ -253,7 +256,7 @@ function renderShop() {
       const cost = econ.upgradeCost(u);
       const name = u.max > 1 ? `${u.name} <span class="desc">Lv ${lvl}/${u.max}</span>` : u.name;
       const honey = u.currency === 'honey';
-      let label = `${honey ? '⬢' : '✿'} ${fmt(cost)}`;
+      let label = `${honey ? HONEY : '✿'} ${fmt(cost)}`;
       if (maxed) label = u.max === 1 ? 'Owned' : 'Maxed';
       else if (needs) label = `Requires ${econ.nameOf(u.requires!)}`;
       box.appendChild(
@@ -342,7 +345,7 @@ function buildHive() {
 function buildRing() {
   if (!econ.has('hive')) return toast('Fairy rings cost honey. Build a Beehive (H) first.');
   const p = placement();
-  if (!p || !afford(econ.ringCost, econ.honey, 'A fairy ring ⬢')) return;
+  if (!p || !afford(econ.ringCost, econ.honey, `A fairy ring ${HONEY}`)) return;
   econ.honey -= econ.ringCost;
   econ.ringsBuilt++;
   fairies.build(p[0], p[1]);
@@ -350,7 +353,7 @@ function buildRing() {
     p[0],
     p[1],
     0xe0b8ff,
-    `Fairy ring built! Its fairies plant everything within ${econ.ringRadius}m (G lists your rings). Next ring ⬢ ${fmt(econ.ringCost)}.`,
+    `Fairy ring built! Its fairies plant everything within ${econ.ringRadius}m (G lists your rings). Next ring ${HONEY} ${fmt(econ.ringCost)}.`,
   );
 }
 
@@ -415,7 +418,7 @@ const BUILDS: BuildOption[] = [
   },
   {
     name: 'Fairy Ring',
-    cost: () => (econ.has('hive') ? `⬢ ${fmt(econ.ringCost)}` : 'needs a hive'),
+    cost: () => (econ.has('hive') ? `${HONEY} ${fmt(econ.ringCost)}` : 'needs a hive'),
     ok: () => econ.has('hive') && econ.honey >= econ.ringCost,
     build: buildRing,
   },
@@ -618,7 +621,7 @@ function renderRings() {
     btn.className = 'remove';
     // Removing the newest-priced ring frees that price slot, so refund exactly that.
     const refund = Math.ceil(RING.baseCost * Math.pow(RING.growth, econ.ringsBuilt - 1));
-    btn.textContent = `Remove (+⬢ ${fmt(refund)})`;
+    btn.innerHTML = `Remove (+${HONEY} ${fmt(refund)})`;
     let armed = false;
     btn.onclick = () => {
       if (!armed) {
@@ -630,7 +633,7 @@ function renderRings() {
       econ.ringsBuilt--;
       econ.honey += refund;
       chimes.purchase();
-      toast(`${r.label} removed. ⬢ ${fmt(refund)} returned. Build it somewhere new with R.`);
+      toast(`${r.label} removed. ${HONEY} ${fmt(refund)} returned. Build it somewhere new with R.`);
       renderRings();
     };
     row.append(info, btn);
