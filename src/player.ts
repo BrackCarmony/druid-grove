@@ -6,13 +6,17 @@ import { Look, look } from './look';
 import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 import { World, wrap } from './world';
 
-// The nymph: movement, mouse-look, riding, and a single continuous zoom that runs
-// from first person -> over the shoulder -> a high overview of the whole world.
+// The nymph: movement, mouse-look, riding, and a continuous zoom that runs from
+// first person -> over the shoulder -> a high overview of the whole world, catching at stops.
 
 const EYE = 1.5;
 const BODY_RADIUS = 0.3;
 export const ZOOM_MIN = 0;
 export const ZOOM_MAX = 320;
+/** Zooms a single scroll gesture catches on: just over the shoulder, and the high overview. */
+const ZOOM_STOPS = [4, 60];
+/** Milliseconds without a wheel event that end a zoom gesture. */
+const GESTURE_GAP = 220;
 
 export class Player {
   pos = new THREE.Vector3(0, 0, 4);
@@ -21,6 +25,8 @@ export class Player {
   pitch = -0.35;
   zoom = 0;
   zoomTarget = 0;
+  private lastWheel = 0;
+  private heldDir = 0;
   onGround = true;
   keys = new Set<string>();
   model: THREE.Group;
@@ -63,11 +69,27 @@ export class Player {
   }
 
   scroll(dy: number) {
+    if (!dy) return;
+    const now = performance.now();
+    const dir = Math.sign(dy);
+    // A pause in the wheel (or a change of direction) starts a new zoom gesture, which may carry
+    // on past the stop the last one caught on.
+    if (now - this.lastWheel > GESTURE_GAP || dir !== this.heldDir) this.heldDir = 0;
+    this.lastWheel = now;
+    if (this.heldDir) return;
     // Exponential-feeling zoom so small scrolls near the nymph are fine-grained.
     const z = this.zoomTarget;
-    const step = Math.max(0.6, z * 0.18) * Math.sign(dy);
-    this.zoomTarget = THREE.MathUtils.clamp(z + step, ZOOM_MIN, ZOOM_MAX);
-    if (this.zoomTarget < 0.8 && dy < 0) this.zoomTarget = 0;
+    const step = Math.max(0.6, z * 0.18) * dir;
+    let next = THREE.MathUtils.clamp(z + step, ZOOM_MIN, ZOOM_MAX);
+    if (next < 0.8 && dir < 0) next = 0;
+    // One gesture can't sweep past a stop: it catches there until the wheel rests.
+    for (const stop of ZOOM_STOPS)
+      if ((z < stop && next >= stop) || (z > stop && next <= stop)) {
+        next = stop;
+        this.heldDir = dir;
+        break;
+      }
+    this.zoomTarget = next;
   }
 
   get firstPerson() {
