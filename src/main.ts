@@ -135,6 +135,8 @@ function loadSlot(i: number) {
     for (const t of extra.trampled ?? []) scenery.smash(t);
     playTime = extra.playTime ?? 0;
   }
+  // Boulders can't sit inside a den mound (older saves may have some).
+  for (const d of apiary.dens) scenery.trample(d.x, d.z, 4.5, () => {});
   apiary.syncBears(extra?.bearHomes);
   fairies.syncFairies(); // wayfarers
   flowers.reset(); // chunks streamed in behind the home screen predate the save
@@ -445,6 +447,7 @@ function buildDen() {
   econ.pollen -= econ.denCost;
   econ.densBuilt++;
   const den = apiary.buildDen(p[0], p[1]);
+  scenery.trample(den.x, den.z, 4.5, () => {}); // clear boulders out of the mound
   econ.bears++;
   apiary.syncBears([], den);
   built(p[0], p[1], 0xffa02b, `${den.label} built, and a bear moved in. Bears pick hives near their own den.`);

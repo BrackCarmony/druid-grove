@@ -127,28 +127,157 @@ function hiveModel() {
   return g;
 }
 
+// ---------- bear den ----------
+// The den is a lathed earth mound whose base flares outward below ground, so on a slope it
+// always meets the terrain. A tunnel is cut into the front (local +z): the mound's shader
+// discards fragments inside the arch, and a black half-tube behind it makes the dark cave.
+
+const DEN_X_SCALE = 1.15; // the mound is a little wider than it is deep
+/** Mound profile as (radius, height) from the top down; continues below ground as a skirt. */
+const DEN_PROFILE: [number, number][] = [
+  [0, 2.75],
+  [1.2, 2.6],
+  [2.1, 2.05],
+  [2.7, 1.25],
+  [3.0, 0.45],
+  [3.15, 0],
+  [3.6, -1.2],
+  [4.3, -2.8],
+  [5.0, -4.5],
+];
+const CAVE_W = 1.05; // half-width of the opening
+const CAVE_H = 1.7; // height of the opening
+const CAVE_BACK = 0.5; // the tunnel's far end (local z)
+/** Local z of a den spot: deep in the cave, and just outside the mouth. */
+export const DEN_INSIDE = 1.0;
+export const DEN_MOUTH = 4.3;
+
+function profileR(y: number) {
+  const p = DEN_PROFILE;
+  if (y >= p[0][1]) return p[0][0];
+  for (let i = 1; i < p.length; i++) {
+    if (y >= p[i][1]) {
+      const [r0, y0] = p[i - 1];
+      const [r1, y1] = p[i];
+      return r1 + ((r0 - r1) * (y - y1)) / (y0 - y1);
+    }
+  }
+  return p[p.length - 1][0];
+}
+
+/** Where the mound's front surface is at a given local x and height. */
+function frontZ(x: number, y: number) {
+  const r = profileR(y);
+  const u = x / DEN_X_SCALE;
+  return Math.sqrt(Math.max(0, r * r - u * u));
+}
+
+/** A Lambert material that cuts the cave opening out of whatever uses it. */
+function caveCutMaterial(color: number) {
+  const m = new THREE.MeshLambertMaterial({ color });
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDenLocal;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDenLocal = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vDenLocal;')
+      .replace(
+        'void main() {',
+        `void main() {
+  vec2 cave = vDenLocal.xy / vec2(${CAVE_W.toFixed(3)}, ${CAVE_H.toFixed(3)});
+  if (vDenLocal.z > ${CAVE_BACK.toFixed(3)} && vDenLocal.y > -0.05 && dot(cave, cave) < 1.0) discard;`,
+      );
+  };
+  m.customProgramCacheKey = () => 'den-cave-cut';
+  return m;
+}
+
+function moundGeometry(fromY: number, grow: number) {
+  const pts = DEN_PROFILE.filter(([, y]) => y >= fromY).map(
+    ([r, y]) => new THREE.Vector2(r * grow, y + (grow - 1) * 0.6),
+  );
+  if (pts[pts.length - 1].y > fromY) pts.push(new THREE.Vector2(profileR(fromY) * grow, fromY));
+  pts.reverse(); // lathe wants bottom to top for outward normals
+  const g = new THREE.LatheGeometry(pts, 28);
+  g.scale(DEN_X_SCALE, 1, 1);
+  return g;
+}
+
+/** Half-tube for the tunnel: arch over local z from CAVE_BACK out to the mound's surface. */
+function tunnelGeometry(w: number, h: number) {
+  const seg = 14;
+  const pos: number[] = [];
+  const idx: number[] = [];
+  for (let i = 0; i <= seg; i++) {
+    const a = (i / seg) * Math.PI;
+    const x = Math.cos(a) * w;
+    const y = Math.sin(a) * h;
+    pos.push(x, y, CAVE_BACK, x, y, frontZ(x, y) + 0.05);
+  }
+  for (let i = 0; i < seg; i++) {
+    const a = i * 2;
+    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
 function denModel() {
   const g = new THREE.Group();
-  const mound = new THREE.Mesh(new THREE.SphereGeometry(2.2, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2), lam(0x6d5a3f));
-  mound.scale.set(1.3, 0.85, 1);
-  g.add(mound);
-  const moss = new THREE.Mesh(new THREE.SphereGeometry(2.25, 14, 5, 0, Math.PI * 2, 0, Math.PI / 4), lam(0x6aa83f));
-  moss.scale.set(1.3, 0.85, 1);
-  moss.position.y = 0.55;
-  g.add(moss);
-  const mouth = new THREE.Mesh(new THREE.CircleGeometry(0.85, 14, 0, Math.PI), lam(0x1e140c));
-  mouth.position.set(0, 0.02, 2.05);
-  mouth.rotation.x = -0.25;
-  g.add(mouth);
-  // honey pots out front
-  const pot = lam(0xc98a3b);
-  for (let i = 0; i < 4; i++) {
-    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.5, 9), pot);
-    p.position.set(-1.6 + i * 1.05 + (i > 1 ? 0.4 : 0), 0.25, 2.3 + (i % 2) * 0.35);
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.05, 9), lam(0xffb627, 0x553300));
-    top.position.copy(p.position).setY(0.51);
-    g.add(p, top);
+  g.add(new THREE.Mesh(moundGeometry(-4.5, 1), caveCutMaterial(0x6d5a3f)));
+  g.add(new THREE.Mesh(moundGeometry(1.1, 1.025), caveCutMaterial(0x6aa83f))); // mossy cap, hugging the mound
+
+  // The cave: black tunnel walls, back wall and floor.
+  const dark = new THREE.MeshBasicMaterial({ color: 0x0b0806, side: THREE.DoubleSide });
+  g.add(new THREE.Mesh(tunnelGeometry(CAVE_W + 0.04, CAVE_H + 0.04), dark));
+  const back = new THREE.Mesh(new THREE.CircleGeometry(1, 16, 0, Math.PI), dark);
+  back.scale.set(CAVE_W + 0.05, CAVE_H + 0.05, 1);
+  back.position.z = CAVE_BACK;
+  g.add(back);
+  const floorLen = frontZ(0, 0) + 0.15 - CAVE_BACK;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(CAVE_W * 2, floorLen), dark);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.set(0, 0.03, CAVE_BACK + floorLen / 2);
+  g.add(floor);
+
+  // A ring of stones framing the mouth, sitting on the mound's surface.
+  const stone = lam(0x8a7f74);
+  const stoneGeo = new THREE.DodecahedronGeometry(0.32, 0);
+  for (let i = 0; i <= 8; i++) {
+    const a = (i / 8) * Math.PI;
+    const x = Math.cos(a) * (CAVE_W + 0.22);
+    const y = Math.sin(a) * (CAVE_H + 0.22);
+    const s = new THREE.Mesh(stoneGeo, stone);
+    s.position.set(x, Math.max(0.12, y), frontZ(x, Math.max(0, y)) + 0.05);
+    s.rotation.set(i * 1.3, i * 0.7, i * 2.1);
+    s.scale.setScalar(i === 4 ? 1.35 : 0.85 + (i % 3) * 0.15); // a keystone on top
+    g.add(s);
   }
+
+  // Honey pots either side of the mouth (snapped to the ground once placed in the world).
+  const pot = lam(0xc98a3b);
+  const lid = lam(0xffb627, 0x553300);
+  const spots: [number, number][] = [
+    [-2.0, 3.3],
+    [-2.5, 2.9],
+    [2.0, 3.35],
+    [2.6, 2.85],
+  ];
+  for (const [x, z] of spots) {
+    const p = new THREE.Group();
+    p.name = 'pot';
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.5, 9), pot);
+    body.position.y = 0.25;
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.05, 9), lid);
+    top.position.y = 0.51;
+    p.add(body, top);
+    p.position.set(x, 0, z);
+    g.add(p);
+  }
+
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.3, 0.6, 24, 10, 1, true),
     new THREE.MeshBasicMaterial({
@@ -159,7 +288,7 @@ function denModel() {
       side: THREE.DoubleSide,
     }),
   );
-  beam.position.y = 12;
+  beam.position.y = 2.8 + 12; // starts at the top of the mound, clear of the tunnel
   g.add(beam);
   return g;
 }
@@ -179,8 +308,17 @@ export interface Hive {
 export interface Den {
   x: number;
   z: number;
+  y: number; // ground height at the cave mouth (the tunnel floor)
+  rot: number; // the mouth faces local +z turned by this
   obj: THREE.Group;
   label: string;
+}
+
+/** A point in front of (lz > 0) or inside a den, in world x/z. */
+function denPoint(d: Den, lx: number, lz: number): [number, number] {
+  const c = Math.cos(d.rot);
+  const s = Math.sin(d.rot);
+  return [wrap(d.x + lx * c + lz * s), wrap(d.z - lx * s + lz * c)];
 }
 
 interface Bear {
@@ -193,6 +331,9 @@ interface Bear {
   z: number;
   wander: number;
   phase: number;
+  inDen: boolean; // inside the tunnel (walks in and out through the mouth)
+  lounging: boolean; // at home: mooching around outside rather than resting inside
+  rest: number; // seconds until it switches between resting and mooching
 }
 
 interface Bee {
@@ -242,11 +383,40 @@ export class Apiary {
 
   buildDen(x: number, z: number, label?: string): Den {
     const obj = denModel();
-    obj.position.set(x, this.world.heightAt(x, z), z);
-    obj.rotation.y = this.dens.length ? Math.atan2(-x, -z) : 0.5; // mouth toward home
+    // Dug into a hillside, the mouth faces downhill and the back is buried in the slope;
+    // on flat ground it faces home.
+    let rot = this.dens.length ? Math.atan2(-x, -z) : 0.5;
+    let lo = Infinity;
+    let hi = -Infinity;
+    let loAng = 0;
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const h = this.world.heightAt(x + Math.sin(a) * 3.2, z + Math.cos(a) * 3.2);
+      if (h < lo) [lo, loAng] = [h, a];
+      hi = Math.max(hi, h);
+    }
+    if (hi - lo > 0.5) rot = loAng;
+    const den: Den = {
+      x,
+      z,
+      y: 0,
+      rot,
+      obj,
+      label: label ?? `Bear Den · ${this.world.glades[this.gladeAt(x, z)].name}`,
+    };
+    // Sit the tunnel floor on the ground at the mouth; the mound's buried skirt covers any slope.
+    const [mx, mz] = denPoint(den, 0, 3.2);
+    den.y = this.world.heightAt(mx, mz);
+    obj.position.set(x, den.y, z);
+    obj.rotation.y = rot;
+    // Each honey pot stands on the ground where it is.
+    for (const p of obj.children) {
+      if (p.name !== 'pot') continue;
+      const [px, pz] = denPoint(den, p.position.x, p.position.z);
+      p.position.y = this.world.heightAt(px, pz) - den.y - 0.04;
+    }
     this.group.add(obj);
-    this.colliders.add(x, z, 2.2);
-    const den: Den = { x, z, obj, label: label ?? `Bear Den · ${this.world.glades[this.gladeAt(x, z)].name}` };
+    this.colliders.add(x, z, 2.9);
     this.dens.push(den);
     return den;
   }
@@ -348,17 +518,20 @@ export class Apiary {
       const den = prefer ?? (saved !== undefined ? this.dens[saved] : undefined) ?? this.neediestDen();
       prefer = undefined;
       const mesh = new THREE.Mesh(this.bearGeo, this.bearMat);
-      const a = Math.random() * Math.PI * 2;
+      const [x, z] = denPoint(den, (Math.random() - 0.5) * 0.6, DEN_INSIDE); // new bears start inside
       const b: Bear = {
         den,
         mesh,
         state: 'home',
         hive: null,
         carry: 0,
-        x: den.x + Math.cos(a) * 3,
-        z: den.z + Math.sin(a) * 3 + 2,
+        x,
+        z,
         wander: Math.random() * 10,
         phase: Math.random() * 10,
+        inDen: true,
+        lounging: false,
+        rest: 2 + Math.random() * 12,
       };
       this.group.add(mesh);
       this.bears.push(b);
@@ -448,11 +621,13 @@ export class Apiary {
     const speed = this.econ.bearSpeed;
     const carry = this.econ.bearCarry;
     for (const b of this.bears) {
+      const den = b.den;
+      // Where the bear wants to end up, and whether that's inside the den.
       let tx = b.x;
       let tz = b.z;
-      let moving = false;
+      let wantInside = false;
       if (b.state === 'home') {
-        const h = this.pickHive(b.den);
+        const h = this.pickHive(den);
         if (h) {
           b.hive = h;
           const take = Math.min(carry, h.honey - h.reserved);
@@ -460,18 +635,25 @@ export class Apiary {
           b.carry = take; // what we've promised to collect
           b.state = 'out';
         } else {
-          // mooch around in front of the den
-          b.wander += dt * 0.3;
-          tx = b.den.x + Math.cos(b.wander + b.phase) * 3.5;
-          tz = b.den.z + 3.5 + Math.sin(b.wander * 1.3 + b.phase) * 1.5;
-          moving = wdist(b.x, b.z, tx, tz) > 0.3;
+          // Idle: rest in the cave for a while, then come out and mooch about the entrance.
+          b.rest -= dt;
+          if (b.rest <= 0) {
+            b.lounging = !b.lounging;
+            b.rest = b.lounging ? 6 + Math.random() * 10 : 12 + Math.random() * 20;
+          }
+          if (b.lounging) {
+            b.wander += dt * 0.3;
+            [tx, tz] = denPoint(den, Math.cos(b.wander + b.phase) * 3, 6 + Math.sin(b.wander * 1.3 + b.phase) * 1.5);
+          } else {
+            [tx, tz] = denPoint(den, Math.sin(b.phase) * 0.3, DEN_INSIDE);
+            wantInside = true;
+          }
         }
       }
       if (b.state === 'out' && b.hive) {
         tx = b.hive.x;
         tz = b.hive.z;
-        moving = true;
-        if (wdist(b.x, b.z, tx, tz) < 1.4) {
+        if (!b.inDen && wdist(b.x, b.z, tx, tz) < 1.4) {
           const h = b.hive;
           h.reserved = Math.max(0, h.reserved - b.carry);
           b.carry = Math.min(carry, h.honey);
@@ -480,23 +662,32 @@ export class Apiary {
           b.mesh.geometry = this.bearPotGeo;
         }
       }
+      const [mx, mz] = denPoint(den, 0, DEN_MOUTH);
       if (b.state === 'back') {
-        tx = b.den.x;
-        tz = b.den.z + 2.6;
-        moving = true;
-        if (wdist(b.x, b.z, tx, tz) < 1.2) {
+        // Drop the honey at the cave mouth, then head inside.
+        [tx, tz] = [mx, mz];
+        if (wdist(b.x, b.z, mx, mz) < 1.2) {
           if (b.carry > 0) onDeliver(b.carry);
           b.carry = 0;
           b.hive = null;
           b.state = 'home';
+          b.lounging = false;
+          b.rest = 12 + Math.random() * 20;
           b.mesh.geometry = this.bearGeo;
         }
+      }
+      // In and out of the den only through the mouth.
+      if (b.inDen !== wantInside) {
+        const atMouth = wdist(b.x, b.z, mx, mz) < 0.5;
+        if (atMouth) b.inDen = wantInside;
+        else [tx, tz] = [mx, mz];
       }
       const dx = wrap(tx - b.x); // the short way round
       const dz = wrap(tz - b.z);
       const d = Math.hypot(dx, dz);
+      const moving = d > 0.3;
       const sp = b.state === 'home' ? 1.2 : speed;
-      if (moving && d > 0.01) {
+      if (moving) {
         const step = Math.min(d, sp * dt);
         b.x += (dx / d) * step;
         b.z += (dz / d) * step;
@@ -506,9 +697,12 @@ export class Apiary {
         b.z = wrap(b.z);
       }
       const waddle = moving ? Math.sin(b.phase) : 0;
-      b.mesh.position.set(b.x, this.world.heightAt(b.x, b.z) + Math.abs(waddle) * 0.12, b.z);
+      // Inside the tunnel the floor is flat; out of sight once it's deep in the cave.
+      const ground = b.inDen ? den.y : this.world.heightAt(b.x, b.z);
+      b.mesh.position.set(b.x, ground + Math.abs(waddle) * 0.12, b.z);
       b.mesh.rotation.z = waddle * 0.12;
-      b.mesh.visible = wdist(playerPos.x, playerPos.z, b.x, b.z) < 260;
+      const resting = b.inDen && !moving;
+      b.mesh.visible = !resting && wdist(playerPos.x, playerPos.z, b.x, b.z) < 260;
     }
 
     this.updateBees(dt, time, playerPos);
