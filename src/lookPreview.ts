@@ -3,7 +3,8 @@ import type { Look } from './look';
 import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 
 // A small turntable of the character for the home screen's Customize panel. It has its own
-// renderer, which only exists while the panel is open. Drag to turn her around.
+// renderer, made the first time the panel opens and kept after; it only draws while the panel
+// is open. Drag to turn her around.
 
 export class LookPreview {
   private renderer: THREE.WebGLRenderer | null = null;
@@ -12,6 +13,7 @@ export class LookPreview {
   private rig: NymphRig | null = null;
   private stand = new THREE.Group();
   private raf = 0;
+  private lost = false;
   private last = 0;
   private yaw = 0.5;
   private spin = 0.35; // radians per second while nobody is dragging
@@ -65,13 +67,23 @@ export class LookPreview {
   }
 
   start() {
-    if (this.renderer) return;
-    try {
-      this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
-    } catch {
-      return; // no second WebGL context: the options still work, just without a preview
+    if (this.raf) return;
+    // The renderer is made once and kept: tearing a WebGL context down and making a new one
+    // every time the panel opens soon gets the page's WebGL blocked by the browser.
+    if (!this.renderer) {
+      try {
+        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true });
+      } catch {
+        return; // no second WebGL context: the options still work, just without a preview
+      }
+      this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+      // If the GPU drops the context, wait for it to come back instead of giving up on it.
+      this.canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        this.lost = true;
+      });
+      this.canvas.addEventListener('webglcontextrestored', () => (this.lost = false));
     }
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.last = performance.now();
     const frame = (now: number) => {
       this.raf = requestAnimationFrame(frame);
@@ -80,18 +92,15 @@ export class LookPreview {
     this.raf = requestAnimationFrame(frame);
   }
 
+  /** Pause drawing while the panel is closed (the renderer stays for next time). */
   stop() {
     cancelAnimationFrame(this.raf);
-    if (this.renderer) {
-      this.renderer.dispose();
-      this.renderer.forceContextLoss();
-      this.renderer = null;
-    }
+    this.raf = 0;
   }
 
   private draw(now: number) {
     const r = this.renderer;
-    if (!r || !this.rig) return;
+    if (!r || !this.rig || this.lost) return;
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     const w = this.canvas.clientWidth;
