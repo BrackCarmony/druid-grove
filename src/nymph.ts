@@ -118,7 +118,7 @@ export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
     g.rotation.y = a;
     hips.add(g);
     const leaf = mesh(leafGeo(0.15, male ? 0.22 : 0.3), M.leafLight, g);
-    leaf.rotation.x = Math.PI - 0.32;
+    leaf.rotation.x = Math.PI - 0.12; // flares less than the outer petals, so it stays under them
   }
   // satchel on the left hip, for seeds
   const bag = new THREE.Group();
@@ -401,10 +401,10 @@ function buildHair(lk: Look, head: THREE.Group, M: Mats) {
   if (lk.hair === 'long') {
     const seg = [
       { w: 0.25, l: 0.2 },
-      { w: 0.22, l: 0.18 },
-      { w: 0.17, l: 0.16 },
+      { w: 0.22, l: 0.17 },
+      { w: 0.17, l: 0.14 },
     ];
-    chain(3, [-0.02, 0.105], 0.16, (j, k) => {
+    chain(3, [-0.02, 0.105], 0.15, (j, k) => {
       const s = seg[k];
       const blob = mesh(new THREE.SphereGeometry(0.5, 10, 7), k === 2 ? M.hairTip : M.hair, j);
       blob.scale.set(s.w, s.l, 0.07);
@@ -842,8 +842,14 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   const fall = THREE.MathUtils.clamp(-s.vy / 8, 0, 1) * air;
   for (let i = 0; i < rig.hair.length; i++) {
     const h = rig.hair[i];
+    // At rest the hair drapes back off the shoulders, then falls (so it hangs clear of the
+    // belt and skirt); moving, it streams out behind.
+    const drape = i === 0 ? -0.17 : 0.06;
     const target =
-      -(stream * (0.35 + i * 0.12) + fall * 0.4) - lean * (i === 0 ? 1 : 0) + Math.sin(time * 1.3 - i * 0.6) * 0.04;
+      drape -
+      (stream * (0.35 + i * 0.12) + fall * 0.4) -
+      lean * (i === 0 ? 1 : 0) +
+      Math.sin(time * 1.3 - i * 0.6) * 0.04;
     const sway = Math.sin(p - i * 0.7) * 0.08 * move + Math.sin(time * 0.9 - i) * 0.03;
     h.rotation.x += (target - h.rotation.x) * Math.min(1, dt * Math.max(2.5, 8 - i * 1.5));
     h.rotation.z += (sway - h.rotation.z) * Math.min(1, dt * 6);
