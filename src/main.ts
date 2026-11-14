@@ -691,7 +691,9 @@ function renderRings() {
     econ.ringsBuilt -= now.length;
     econ.honey += refund;
     chimes.purchase();
-    toast(`${now.length} finished ring${now.length === 1 ? '' : 's'} removed. ${HONEY} ${fmt(refund)} returned. Build them somewhere new with R.`);
+    toast(
+      `${now.length} finished ring${now.length === 1 ? '' : 's'} removed. ${HONEY} ${fmt(refund)} returned. Build them somewhere new with R.`,
+    );
     renderRings();
   };
   const list = $('rings-list');
@@ -843,14 +845,15 @@ const music = (f: string) => import.meta.env.BASE_URL + 'music/' + f;
 const SONGS: Song[] = [
   // "forest" loops seamlessly end to end.
   { title: 'forest', parts: [{ url: music('forest.mp3') }, { url: music('forest.mp3') }] },
-  // Sylvan Waltz, per the composer's notes: intro, then the main loop at 11.08 s, re-triggered
-  // every 75 s (at 1:26.08) while the previous copy's tail rings out underneath.
+  // Sylvan Waltz, per the composer's notes: intro, then the main loop at 11.08 s; the main loop
+  // is re-triggered when it reaches 1:26.08 of its own length (the last ~3 s of each file is a
+  // reverb tail that rings out underneath the next part).
   {
     title: 'Sylvan Waltz',
     parts: [
       { url: music('sylvan-waltz-intro.mp3'), at: 0 },
       { url: music('sylvan-waltz-main.mp3'), at: 11.08 },
-      { url: music('sylvan-waltz-main.mp3'), at: 86.08 },
+      { url: music('sylvan-waltz-main.mp3'), at: 11.08 + 86.08 },
     ],
   },
   {
