@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import {
+  BACK_NAMES,
+  BODY_NAMES,
+  HAIR_COLORS,
+  HAIR_NAMES,
+  HEAD_NAMES,
+  Look,
+  look,
+  OUTFITS,
+  SKINS,
+  updateLook,
+} from './look';
+import { LookPreview } from './lookPreview';
 import { DayNight, NEW_WORLD_TIME } from './daynight';
 import { Perf } from './perf';
 import { onSettings, settings, updateSettings, VIEW_SCALE, ViewDistance } from './settings';
@@ -913,12 +926,89 @@ const startMusic = () => {
 addEventListener('pointerdown', startMusic);
 addEventListener('keydown', startMusic);
 
-function showHome(panel: 'main' | 'settings' | 'credits') {
+function showHome(panel: 'main' | 'settings' | 'credits' | 'look') {
   $('home-main').classList.toggle('hidden', panel !== 'main');
   $('home-settings').classList.toggle('hidden', panel !== 'settings');
   $('home-credits').classList.toggle('hidden', panel !== 'credits');
+  $('home-look').classList.toggle('hidden', panel !== 'look');
+  if (panel === 'look') {
+    renderLookOpts();
+    lookPreview.setLook(look);
+    lookPreview.start();
+  } else lookPreview.stop();
 }
 $('open-settings').onclick = () => showHome('settings');
+$('open-look').onclick = () => showHome('look');
+
+// ---------- home screen: character customization ----------
+const lookPreview = new LookPreview($<HTMLCanvasElement>('look-preview'));
+const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+function renderLookOpts() {
+  const box = $('look-opts');
+  box.textContent = '';
+  const row = (label: string) => {
+    const r = document.createElement('div');
+    r.className = 'look-row';
+    const l = document.createElement('span');
+    l.textContent = label;
+    r.appendChild(l);
+    box.appendChild(r);
+    return r;
+  };
+  const apply = (patch: Partial<Look>) => {
+    updateLook(patch);
+    lookPreview.setLook(look);
+    player.setLook(look);
+    renderLookOpts();
+  };
+  const choices = <K extends 'body' | 'hair' | 'head' | 'back'>(
+    label: string,
+    key: K,
+    names: Record<Look[K], string>,
+  ) => {
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    for (const [v, name] of Object.entries(names) as [Look[K], string][]) {
+      const b = document.createElement('button');
+      b.textContent = name;
+      b.classList.toggle('on', look[key] === v);
+      b.onclick = () => {
+        const patch: Partial<Look> = { [key]: v };
+        // switching body picks that body's usual hairstyle; it can still be changed after
+        if (key === 'body') patch.hair = v === 'male' ? 'short' : 'long';
+        apply(patch);
+      };
+      seg.appendChild(b);
+    }
+    row(label).appendChild(seg);
+  };
+  const swatches = (
+    label: string,
+    key: 'hairColor' | 'skin' | 'outfit',
+    opts: Record<string, { name: string }>,
+    color: (k: string) => number,
+  ) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'swatches';
+    for (const [k, o] of Object.entries(opts)) {
+      const b = document.createElement('button');
+      b.title = o.name;
+      b.setAttribute('aria-label', `${label}: ${o.name}`);
+      b.style.background = hex(color(k));
+      b.classList.toggle('on', look[key] === k);
+      b.onclick = () => apply({ [key]: k });
+      wrap.appendChild(b);
+    }
+    row(`${label} · ${opts[look[key]].name}`).appendChild(wrap);
+  };
+  choices('Body', 'body', BODY_NAMES);
+  choices('Hair', 'hair', HAIR_NAMES);
+  swatches('Hair colour', 'hairColor', HAIR_COLORS, (k) => HAIR_COLORS[k].base);
+  swatches('Skin', 'skin', SKINS, (k) => SKINS[k].base);
+  swatches('Outfit', 'outfit', OUTFITS, (k) => OUTFITS[k].dark);
+  choices('Headwear', 'head', HEAD_NAMES);
+  choices('On the back', 'back', BACK_NAMES);
+}
 $('open-credits').onclick = () => showHome('credits');
 for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back')) b.onclick = () => showHome('main');
 

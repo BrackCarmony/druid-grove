@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Colliders } from './colliders';
 import type { MountDef, MountId, ToolId } from './economy';
 import { buildMount, MountModel } from './mounts';
+import { Look, look } from './look';
 import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 import { World, wrap } from './world';
 
@@ -42,7 +43,7 @@ export class Player {
   ) {
     this.pos.y = world.heightAt(this.pos.x, this.pos.z);
     this.model = new THREE.Group();
-    this.nymph = buildNymph();
+    this.nymph = buildNymph(look);
     this.model.add(this.nymph.root, this.mountHolder);
     this.mountHolder.rotation.y = Math.PI; // mount models face +z
     const vm = buildViewmodels();
@@ -71,6 +72,26 @@ export class Player {
 
   get firstPerson() {
     return this.zoom < 0.5;
+  }
+
+  /** Rebuild the character model with a new look, keeping where she is (on foot or riding). */
+  setLook(lk: Look) {
+    const old = this.nymph.root;
+    const parent = old.parent;
+    const next = buildNymph(lk);
+    next.root.position.copy(old.position);
+    next.root.rotation.copy(old.rotation);
+    next.root.visible = old.visible;
+    parent?.remove(old);
+    parent?.add(next.root);
+    old.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose();
+        (o.material as THREE.Material).dispose();
+      }
+    });
+    this.nymph = next;
+    setNymphTool(next, this.tool);
   }
 
   setTool(id: ToolId) {

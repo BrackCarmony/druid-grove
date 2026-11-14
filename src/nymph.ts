@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { MountId, ToolId } from './economy';
+import { DEFAULT_LOOK, HAIR_COLORS, Look, OUTFITS, SKINS } from './look';
 import { bake, joint, lam, leafGeo, limb, mesh } from './rig';
 
 // The wood nymph's third-person model: a small jointed rig (hips, spine, head, two-part
@@ -10,26 +11,53 @@ import { bake, joint, lam, leafGeo, limb, mesh } from './rig';
 // forward. After building, the meshes on each joint are merged per material so the whole
 // nymph costs a few dozen draw calls.
 
-const M = {
-  skin: lam(0xd2ecb8, 0x1c2414),
-  blush: lam(0xf2a2a8, 0x3a1418),
-  hair: lam(0x23574a, 0x06120e),
-  hairTip: lam(0x3f8a5c, 0x0a1a10),
-  dress: lam(0x2f6a36, 0x061206),
-  leafDark: lam(0x2f7a3c, 0x061406, THREE.DoubleSide),
-  leafLight: lam(0x74bf55, 0x0c1c06, THREE.DoubleSide),
-  bark: lam(0x6b4a2b),
-  twine: lam(0xa07a4a),
-  leather: lam(0x8a5a33),
-  boot: lam(0x5a4028),
-  bloom: lam(0xff9ec4, 0x552233),
-  bloomHeart: lam(0xfff27a, 0x444010),
-  eye: new THREE.MeshBasicMaterial({ color: 0x1d2b24 }),
-  shine: new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  metal: lam(0xc9ccd6),
-  wood: lam(0x8a5a33),
-  glove: lam(0x6fae55),
-};
+type Mats = ReturnType<typeof materials>;
+
+/** Fresh materials for one build, coloured by the chosen look. */
+function materials(lk: Look) {
+  const hair = HAIR_COLORS[lk.hairColor];
+  const skin = SKINS[lk.skin];
+  const out = OUTFITS[lk.outfit];
+  const em = (c: number, k = 0.12) => new THREE.Color(c).multiplyScalar(k).getHex();
+  return {
+    skin: lam(skin.base, em(skin.base, 0.1)),
+    blush: lam(skin.blush, em(skin.blush, 0.2)),
+    hair: lam(hair.base, em(hair.base)),
+    hairTip: lam(hair.tip, em(hair.tip)),
+    hairDS: lam(hair.base, em(hair.base), THREE.DoubleSide),
+    hairTipDS: lam(hair.tip, em(hair.tip), THREE.DoubleSide),
+    dress: lam(out.dress, em(out.dress, 0.15)),
+    leafDark: lam(out.dark, em(out.dark), THREE.DoubleSide),
+    leafLight: lam(out.light, em(out.light), THREE.DoubleSide),
+    sprout: lam(0x74bf55, 0x0c1c06, THREE.DoubleSide), // living leaves stay green
+    sproutDark: lam(0x2f7a3c, 0x061406, THREE.DoubleSide),
+    legging: lam(0x5e4a34),
+    bark: lam(0x6b4a2b),
+    twine: lam(0xa07a4a),
+    leather: lam(0x8a5a33),
+    boot: lam(0x5a4028),
+    bloom: lam(0xff9ec4, 0x552233, THREE.DoubleSide),
+    bloom2: lam(0xfff6e8, 0x333333, THREE.DoubleSide),
+    bloom3: lam(0xc3b5ff, 0x2a2244, THREE.DoubleSide),
+    bloomHeart: lam(0xfff27a, 0x444010),
+    capRed: lam(0xd8574a, 0x2a0a06),
+    capDot: lam(0xfff6e4, 0x222222),
+    capUnder: lam(0xf0e2c4),
+    wing: new THREE.MeshLambertMaterial({
+      color: 0xdcfff0,
+      emissive: 0x3a6a58,
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+    eye: new THREE.MeshBasicMaterial({ color: 0x1d2b24 }),
+    shine: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    metal: lam(0xc9ccd6),
+    wood: lam(0x8a5a33),
+    glove: lam(0x6fae55),
+  };
+}
 
 export interface NymphRig {
   root: THREE.Group;
@@ -43,6 +71,8 @@ export interface NymphRig {
   petals: THREE.Group[];
   hair: THREE.Group[]; // back of the hair, a hanging chain
   locks: THREE.Group[]; // side locks
+  cape: THREE.Group | null;
+  wings: THREE.Group[];
   tools: Record<ToolId, THREE.Object3D>;
   glow: THREE.Mesh;
   anim: NymphAnim;
@@ -59,7 +89,9 @@ interface NymphAnim {
 
 const HIP_Y = 0.86;
 
-export function buildNymph(): NymphRig {
+export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
+  const M = materials(lk);
+  const male = lk.body === 'male';
   const root = new THREE.Group();
   const hips = joint(root, 0, HIP_Y, 0);
 
@@ -85,7 +117,7 @@ export function buildNymph(): NymphRig {
     g.position.set(Math.sin(a) * 0.115, 0.03, Math.cos(a) * 0.09);
     g.rotation.y = a;
     hips.add(g);
-    const leaf = mesh(leafGeo(0.15, 0.3), M.leafLight, g);
+    const leaf = mesh(leafGeo(0.15, male ? 0.22 : 0.3), M.leafLight, g);
     leaf.rotation.x = Math.PI - 0.32;
   }
   // satchel on the left hip, for seeds
@@ -101,7 +133,7 @@ export function buildNymph(): NymphRig {
     const s = mesh(new THREE.SphereGeometry(0.014, 5, 4), M.bark, bag);
     s.position.set(-0.01, 0.065, -0.025 + i * 0.022);
   }
-  const sprout = mesh(leafGeo(0.03, 0.07, 0.2), M.leafLight, bag);
+  const sprout = mesh(leafGeo(0.03, 0.07, 0.2), M.sprout, bag);
   sprout.position.set(-0.015, 0.06, 0.01);
   sprout.rotation.set(0.3, 0.4, 0.4);
 
@@ -111,7 +143,8 @@ export function buildNymph(): NymphRig {
     const a = (i / 9) * Math.PI * 2;
     const g = joint(hips, Math.sin(a) * 0.125, 0.05, Math.cos(a) * 0.1);
     g.rotation.y = a;
-    const leaf = mesh(leafGeo(0.2, 0.44), M.leafDark, g);
+    // his is a short leaf tunic, hers a knee-length petal skirt
+    const leaf = mesh(male ? leafGeo(0.22, 0.32, 0.25) : leafGeo(0.2, 0.44), M.leafDark, g);
     leaf.rotation.x = Math.PI;
     petals.push(g);
   }
@@ -120,9 +153,10 @@ export function buildNymph(): NymphRig {
   const legs: NymphRig['legs'] = [];
   for (const side of [-1, 1]) {
     const hip = joint(hips, side * 0.07, -0.02, 0);
-    mesh(limb(0.06, 0.045, 0.4), M.skin, hip);
+    const legMat = male ? M.legging : M.skin;
+    mesh(limb(male ? 0.064 : 0.06, 0.047, 0.4), legMat, hip);
     const knee = joint(hip, 0, -0.4, 0);
-    mesh(limb(0.045, 0.035, 0.4), M.skin, knee);
+    mesh(limb(0.047, 0.037, 0.4), legMat, knee);
     // leaf-wrapped boots from mid-shin down
     const cuff = mesh(new THREE.CylinderGeometry(0.052, 0.042, 0.2, 8), M.boot, knee);
     cuff.position.y = -0.3;
@@ -144,32 +178,48 @@ export function buildNymph(): NymphRig {
 
   // ---- torso ----
   const spine = joint(hips, 0, 0.04, 0);
-  const torsoPts = [
-    [0, 0],
-    [0.128, 0],
-    [0.118, 0.07],
-    [0.096, 0.16],
-    [0.11, 0.27],
-    [0.122, 0.34],
-    [0.112, 0.4],
-    [0.072, 0.445],
-    [0.035, 0.46],
-    [0, 0.46],
-  ].map(([r, y]) => new THREE.Vector2(r, y));
+  // hers tapers to a waist; his is straighter, with broader shoulders
+  const torsoPts = (
+    male
+      ? [
+          [0, 0],
+          [0.126, 0],
+          [0.122, 0.08],
+          [0.118, 0.17],
+          [0.132, 0.28],
+          [0.148, 0.36],
+          [0.138, 0.415],
+          [0.085, 0.45],
+          [0.04, 0.46],
+          [0, 0.46],
+        ]
+      : [
+          [0, 0],
+          [0.128, 0],
+          [0.118, 0.07],
+          [0.096, 0.16],
+          [0.11, 0.27],
+          [0.122, 0.34],
+          [0.112, 0.4],
+          [0.072, 0.445],
+          [0.035, 0.46],
+          [0, 0.46],
+        ]
+  ).map(([r, y]) => new THREE.Vector2(r, y));
   const torso = mesh(new THREE.LatheGeometry(torsoPts, 12), M.dress, spine);
   torso.scale.z = 0.74;
   // leaf collar draped over the shoulders
   for (let i = 0; i < 11; i++) {
     const a = (i / 11) * Math.PI * 2;
     const g = new THREE.Group();
-    g.position.set(Math.sin(a) * 0.075, 0.44, Math.cos(a) * 0.058);
+    g.position.set(Math.sin(a) * (male ? 0.085 : 0.075), 0.44, Math.cos(a) * 0.058);
     g.rotation.y = a;
     spine.add(g);
     const leaf = mesh(leafGeo(0.09, 0.13, 0.3), i % 2 ? M.leafLight : M.leafDark, g);
     leaf.rotation.x = Math.PI - 1.0;
   }
   // satchel strap, right shoulder to left hip
-  const strap = mesh(new THREE.TorusGeometry(0.175, 0.011, 4, 24), M.leather, spine);
+  const strap = mesh(new THREE.TorusGeometry(male ? 0.19 : 0.175, 0.011, 4, 24), M.leather, spine);
   strap.position.set(0, 0.2, 0);
   // lay the ring flat around the body, then tip it so it runs from the right shoulder down
   strap.rotation.set(Math.PI / 2, 0, 0.75, 'ZYX');
@@ -178,10 +228,10 @@ export function buildNymph(): NymphRig {
   // ---- arms ----
   const arms: NymphRig['arms'] = [];
   for (const side of [-1, 1]) {
-    const shoulder = joint(spine, side * 0.135, 0.39, 0);
-    mesh(limb(0.042, 0.035, 0.26), M.skin, shoulder);
+    const shoulder = joint(spine, side * (male ? 0.158 : 0.135), 0.39, 0);
+    mesh(limb(male ? 0.048 : 0.042, male ? 0.04 : 0.035, 0.26), M.skin, shoulder);
     const elbow = joint(shoulder, 0, -0.26, 0);
-    mesh(limb(0.035, 0.03, 0.23), M.skin, elbow);
+    mesh(limb(male ? 0.04 : 0.035, male ? 0.033 : 0.03, 0.23), M.skin, elbow);
     // leafy bracer
     for (let k = 0; k < 3; k++) {
       const l = mesh(leafGeo(0.05, 0.09, 0.4), M.leafLight, elbow);
@@ -212,7 +262,7 @@ export function buildNymph(): NymphRig {
       const y = sp.getY(i) / 0.15;
       if (y < 0.1) {
         const t = (0.1 - y) / 1.1; // 0 at the cheekbones, 1 at the chin
-        sp.setX(i, sp.getX(i) * (1 - 0.32 * t * t));
+        sp.setX(i, sp.getX(i) * (1 - (male ? 0.2 : 0.32) * t * t));
         sp.setZ(i, sp.getZ(i) * (1 - 0.12 * t) - 0.012 * t);
         sp.setY(i, sp.getY(i) - 0.012 * t);
       }
@@ -224,9 +274,16 @@ export function buildNymph(): NymphRig {
   // tiny nose
   mesh(new THREE.SphereGeometry(0.014, 6, 4), M.skin, head).position.set(0, -0.02, -0.15);
   for (const side of [-1, 1]) {
-    const cheek = mesh(new THREE.CircleGeometry(0.024, 10), M.blush, head);
-    cheek.position.set(side * 0.082, -0.04, -0.122);
-    cheek.lookAt(side * 0.5, -0.27, -1);
+    if (!male) {
+      const cheek = mesh(new THREE.CircleGeometry(0.024, 10), M.blush, head);
+      cheek.position.set(side * 0.082, -0.04, -0.122);
+      cheek.lookAt(side * 0.5, -0.27, -1);
+    } else {
+      // a firmer brow
+      const brow = mesh(new THREE.BoxGeometry(0.05, 0.011, 0.012), M.hair, head);
+      brow.position.set(side * 0.058, 0.05, -0.132);
+      brow.rotation.set(0.25, 0, -side * 0.12);
+    }
     // pointed ears
     const ear = mesh(new THREE.ConeGeometry(0.03, 0.13, 6), M.skin, head);
     ear.scale.z = 0.45;
@@ -242,113 +299,29 @@ export function buildNymph(): NymphRig {
   for (const side of [-1, 1]) {
     const e = mesh(new THREE.SphereGeometry(0.026, 10, 8), M.eye, eyes);
     e.position.set(side * 0.056, 0.005, -0.128);
-    e.scale.set(0.85, 1.25, 0.5);
+    e.scale.set(0.85, male ? 1.1 : 1.25, 0.5);
     const s = mesh(new THREE.SphereGeometry(0.008, 6, 4), M.shine, eyes);
     s.position.set(side * 0.056 + 0.007, 0.018, -0.14);
-    // a lash flick at the outer corner
-    const lash = mesh(new THREE.BoxGeometry(0.022, 0.006, 0.006), M.eye, eyes);
-    lash.position.set(side * 0.084, 0.028, -0.12);
-    lash.rotation.z = side * 0.5;
+    if (!male) {
+      // a lash flick at the outer corner
+      const lash = mesh(new THREE.BoxGeometry(0.022, 0.006, 0.006), M.eye, eyes);
+      lash.position.set(side * 0.084, 0.028, -0.12);
+      lash.rotation.z = side * 0.5;
+    }
   }
 
   // ---- hair ----
-  const cap = mesh(new THREE.SphereGeometry(0.162, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), M.hair, head);
-  cap.rotation.x = 0.42;
-  cap.position.y = 0.012;
-  cap.scale.set(1, 1.02, 1);
-  const backCap = mesh(new THREE.SphereGeometry(0.158, 14, 10), M.hair, head);
-  backCap.position.set(0, -0.01, 0.04);
-  backCap.scale.set(1, 0.98, 0.92);
-  // fringe: leaf-shaped locks sweeping across the forehead
-  for (let i = 0; i < 5; i++) {
-    const t = i / 4 - 0.5;
-    const g = new THREE.Group();
-    g.position.set(t * 0.2, 0.125 - Math.abs(t) * 0.05, -0.1 + Math.abs(t) * 0.04);
-    g.rotation.set(0, t * 1.2, 0);
-    head.add(g);
-    const lock = mesh(leafGeo(0.07, 0.11, 0.25), M.hair, g);
-    lock.rotation.set(Math.PI - 0.55, 0, -t * 0.5 + 0.25);
-  }
-  // long hair down the back: a hanging chain of tapering locks
-  const hair: THREE.Group[] = [];
-  let parent: THREE.Object3D = head;
-  const seg = [
-    { w: 0.25, l: 0.2, y: -0.02, z: 0.105 },
-    { w: 0.22, l: 0.18, y: -0.17, z: 0.012 },
-    { w: 0.17, l: 0.16, y: -0.15, z: 0.008 },
-  ];
-  for (const [k, s] of seg.entries()) {
-    const j = joint(parent, 0, s.y, s.z);
-    const blob = mesh(new THREE.SphereGeometry(0.5, 10, 7), k === 2 ? M.hairTip : M.hair, j);
-    blob.scale.set(s.w, s.l, 0.07);
-    blob.position.y = -s.l * 0.42;
-    // a couple of sharper strands at the edges so it reads as hair, not a cape
-    for (const side of [-1, 1]) {
-      const st = mesh(leafGeo(s.w * 0.35, s.l * 0.9, 0.1), k === 2 ? M.hairTip : M.hair, j);
-      st.position.set(side * s.w * 0.36, -s.l * 0.15, 0);
-      st.rotation.set(Math.PI, 0, side * 0.12);
-    }
-    hair.push(j);
-    parent = j;
-  }
-  // side locks framing the face, in front of the ears
-  const locks: THREE.Group[] = [];
-  for (const side of [-1, 1]) {
-    const j = joint(head, side * 0.13, 0.03, -0.05);
-    const l = mesh(leafGeo(0.07, 0.24, 0.3), M.hair, j);
-    l.rotation.set(Math.PI, side * 0.5, side * 0.12);
-    const tip = mesh(leafGeo(0.05, 0.08, 0.2), M.hairTip, j);
-    tip.position.y = -0.2;
-    tip.rotation.set(Math.PI, side * 0.5, side * 0.1);
-    locks.push(j);
-  }
-  // twig antlers with sprouting leaves
-  for (const side of [-1, 1]) {
-    const tw = new THREE.Group();
-    tw.position.set(side * 0.07, 0.12, 0.0);
-    tw.rotation.set(0.3, 0, -side * 0.5);
-    head.add(tw);
-    const main = mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.16, 5), M.bark, tw);
-    main.position.y = 0.08;
-    const fork = mesh(new THREE.CylinderGeometry(0.006, 0.009, 0.08, 5), M.bark, tw);
-    fork.position.set(-side * 0.02, 0.1, 0);
-    fork.rotation.z = side * 0.7;
-    const fork2 = mesh(new THREE.CylinderGeometry(0.005, 0.008, 0.06, 5), M.bark, tw);
-    fork2.position.set(side * 0.015, 0.06, 0.005);
-    fork2.rotation.z = -side * 0.8;
-    for (const [x, y, rz] of [
-      [0, 0.16, 0],
-      [-side * 0.045, 0.13, side * 0.9],
-      [side * 0.04, 0.075, -side * 1.1],
-    ]) {
-      const l = mesh(leafGeo(0.035, 0.06, 0.3), M.leafLight, tw);
-      l.position.set(x, y, 0);
-      l.rotation.set(0.2, 0, rz);
-    }
-  }
-  // crown of small leaves and a pink bloom over one ear
-  for (let i = 0; i < 9; i++) {
-    const a = (i / 9) * Math.PI * 2;
-    const g = new THREE.Group();
-    g.position.set(Math.sin(a) * 0.145, 0.07, Math.cos(a) * 0.14);
-    g.rotation.y = a;
-    head.add(g);
-    const l = mesh(leafGeo(0.06, 0.09, 0.3), i % 2 ? M.leafLight : M.leafDark, g);
-    l.rotation.x = -0.9;
-  }
-  const bloom = new THREE.Group();
-  bloom.position.set(0.12, 0.1, -0.06);
-  bloom.lookAt(0.9, 0.9, -0.6);
-  head.add(bloom);
-  for (let i = 0; i < 6; i++) {
-    const p = mesh(leafGeo(0.05, 0.065, 0.35), M.bloom, bloom);
-    p.rotation.set(0.35, 0, (i / 6) * Math.PI * 2, 'ZXY');
-  }
-  mesh(new THREE.SphereGeometry(0.02, 6, 5), M.bloomHeart, bloom).position.z = 0.012;
+  const { hair, locks } = buildHair(lk, head, M);
+
+  // ---- headwear ----
+  buildHeadwear(lk, head, M);
+
+  // ---- on her back ----
+  const { cape, wings } = buildBack(lk, spine, M);
 
   // ---- tools, held in the right hand ----
   const handR = arms[1].hand;
-  const tools = buildHandTools(handR);
+  const tools = buildHandTools(handR, M);
 
   // Soft glow at her feet so she reads from far away.
   const glow = new THREE.Mesh(
@@ -373,13 +346,249 @@ export function buildNymph(): NymphRig {
     petals,
     hair,
     locks,
+    cape,
+    wings,
     tools,
     glow,
     anim: { phase: 0, speed: 0, air: 0, work: 0, blinkT: 2, last: new Map() },
   };
 }
 
-function buildHandTools(hand: THREE.Group): Record<ToolId, THREE.Object3D> {
+/** Hair: a cap and fringe for every style, plus the style's own locks, chain or bun. */
+function buildHair(lk: Look, head: THREE.Group, M: Mats) {
+  const hair: THREE.Group[] = [];
+  const locks: THREE.Group[] = [];
+  const short = lk.hair === 'short';
+  const cap = mesh(new THREE.SphereGeometry(0.162, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.56), M.hair, head);
+  cap.rotation.x = 0.42;
+  cap.position.y = 0.012;
+  cap.scale.set(1, 1.02, 1);
+  const backCap = mesh(new THREE.SphereGeometry(0.158, 14, 10), M.hair, head);
+  backCap.position.set(0, short ? 0.01 : -0.01, 0.04);
+  backCap.scale.set(1, short ? 0.9 : 0.98, 0.92);
+  // fringe: leaf-shaped locks sweeping across the forehead
+  for (let i = 0; i < 5; i++) {
+    const t = i / 4 - 0.5;
+    const g = new THREE.Group();
+    g.position.set(t * 0.2, 0.125 - Math.abs(t) * 0.05, -0.1 + Math.abs(t) * 0.04);
+    g.rotation.set(0, t * 1.2, 0);
+    head.add(g);
+    const lock = mesh(leafGeo(0.07, short ? 0.08 : 0.11, 0.25), M.hairDS, g);
+    lock.rotation.set(Math.PI - (short ? 0.85 : 0.55), 0, -t * 0.5 + 0.25);
+  }
+  /** A hanging chain of joints down the back; each segment's meshes come from `seg`. */
+  const chain = (n: number, top: [number, number], step: number, seg: (j: THREE.Group, k: number) => void) => {
+    let parent: THREE.Object3D = head;
+    for (let k = 0; k < n; k++) {
+      const j = k === 0 ? joint(parent, 0, top[0], top[1]) : joint(parent, 0, -step, 0.006);
+      seg(j, k);
+      hair.push(j);
+      parent = j;
+    }
+  };
+  const sideLocks = (len: number) => {
+    for (const side of [-1, 1]) {
+      const j = joint(head, side * 0.13, 0.03, -0.05);
+      const l = mesh(leafGeo(0.07, len, 0.3), M.hairDS, j);
+      l.rotation.set(Math.PI, side * 0.5, side * 0.12);
+      const tip = mesh(leafGeo(0.05, 0.08, 0.2), M.hairTipDS, j);
+      tip.position.y = -len + 0.04;
+      tip.rotation.set(Math.PI, side * 0.5, side * 0.1);
+      locks.push(j);
+    }
+  };
+
+  if (lk.hair === 'long') {
+    const seg = [
+      { w: 0.25, l: 0.2 },
+      { w: 0.22, l: 0.18 },
+      { w: 0.17, l: 0.16 },
+    ];
+    chain(3, [-0.02, 0.105], 0.16, (j, k) => {
+      const s = seg[k];
+      const blob = mesh(new THREE.SphereGeometry(0.5, 10, 7), k === 2 ? M.hairTip : M.hair, j);
+      blob.scale.set(s.w, s.l, 0.07);
+      blob.position.y = -s.l * 0.42;
+      // sharper strands at the edges so it reads as hair, not a cape
+      for (const side of [-1, 1]) {
+        const st = mesh(leafGeo(s.w * 0.35, s.l * 0.9, 0.1), k === 2 ? M.hairTipDS : M.hairDS, j);
+        st.position.set(side * s.w * 0.36, -s.l * 0.15, 0);
+        st.rotation.set(Math.PI, 0, side * 0.12);
+      }
+    });
+    sideLocks(0.24);
+  } else if (lk.hair === 'braid') {
+    // one thick braid of alternating twists, tied off with a leaf
+    chain(5, [-0.06, 0.13], 0.085, (j, k) => {
+      for (let b = 0; b < 2; b++) {
+        const lobe = mesh(new THREE.SphereGeometry(0.045 - k * 0.004, 8, 6), k === 4 && b ? M.hairTip : M.hair, j);
+        lobe.scale.set(1, 1.15, 0.85);
+        lobe.position.set((b ? 1 : -1) * 0.014, -0.02 - b * 0.042, 0);
+      }
+      if (k === 4) {
+        const tie = mesh(new THREE.TorusGeometry(0.022, 0.008, 4, 10), M.twine, j);
+        tie.rotation.x = Math.PI / 2;
+        tie.position.y = -0.085;
+        const leaf = mesh(leafGeo(0.045, 0.08), M.sprout, j);
+        leaf.position.set(0.02, -0.085, 0.02);
+        leaf.rotation.set(0.4, 0, -1.2);
+        const tuft = mesh(leafGeo(0.05, 0.08, 0.2), M.hairTipDS, j);
+        tuft.position.y = -0.09;
+        tuft.rotation.x = Math.PI;
+      }
+    });
+    sideLocks(0.15);
+  } else if (lk.hair === 'bun') {
+    const bun = mesh(new THREE.SphereGeometry(0.085, 12, 9), M.hair, head);
+    bun.position.set(0, 0.13, 0.11);
+    bun.scale.set(1, 0.9, 0.95);
+    const wrap = mesh(new THREE.TorusGeometry(0.075, 0.013, 5, 14), M.hairTip, head);
+    wrap.position.set(0, 0.105, 0.1);
+    wrap.rotation.x = Math.PI / 2 - 0.6;
+    // a twig hairpin through the bun, with a leaf
+    const pin = mesh(new THREE.CylinderGeometry(0.006, 0.008, 0.26, 5), M.bark, head);
+    pin.position.set(0, 0.15, 0.12);
+    pin.rotation.set(0.2, 0, 1.25);
+    const pl = mesh(leafGeo(0.04, 0.07), M.sprout, head);
+    pl.position.set(-0.12, 0.17, 0.12);
+    pl.rotation.set(0.3, 0, 1.0);
+    sideLocks(0.16);
+  } else {
+    // short and tufty: leaf-shaped locks flicking out around the back and sides
+    for (let i = 0; i < 9; i++) {
+      const a = Math.PI * (0.35 + (i / 8) * 1.3);
+      const g = new THREE.Group();
+      g.position.set(Math.sin(a) * 0.14, -0.02 + Math.abs(Math.cos(a)) * 0.03, Math.cos(a) * -0.13 + 0.03);
+      g.rotation.y = Math.PI - a;
+      head.add(g);
+      const l = mesh(leafGeo(0.07, 0.1, 0.3), i % 2 ? M.hairTipDS : M.hairDS, g);
+      l.rotation.set(Math.PI - 0.5, 0, (i % 3) * 0.15 - 0.15);
+    }
+  }
+  return { hair, locks };
+}
+
+function buildHeadwear(lk: Look, head: THREE.Group, M: Mats) {
+  const bloomAt = (parent: THREE.Object3D, mat: THREE.Material, size = 1) => {
+    const b = new THREE.Group();
+    parent.add(b);
+    for (let i = 0; i < 6; i++) {
+      const p = mesh(leafGeo(0.05 * size, 0.065 * size, 0.35), mat, b);
+      p.rotation.set(0.35, 0, (i / 6) * Math.PI * 2, 'ZXY');
+    }
+    mesh(new THREE.SphereGeometry(0.02 * size, 6, 5), M.bloomHeart, b).position.z = 0.012 * size;
+    return b;
+  };
+  const leafCrown = () => {
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const g = new THREE.Group();
+      g.position.set(Math.sin(a) * 0.145, 0.07, Math.cos(a) * 0.14);
+      g.rotation.y = a;
+      head.add(g);
+      const l = mesh(leafGeo(0.06, 0.09, 0.3), i % 2 ? M.sprout : M.sproutDark, g);
+      l.rotation.x = -0.9;
+    }
+  };
+
+  if (lk.head === 'antlers') {
+    for (const side of [-1, 1]) {
+      const tw = new THREE.Group();
+      tw.position.set(side * 0.07, 0.12, 0.0);
+      tw.rotation.set(0.3, 0, -side * 0.5);
+      head.add(tw);
+      const main = mesh(new THREE.CylinderGeometry(0.008, 0.014, 0.16, 5), M.bark, tw);
+      main.position.y = 0.08;
+      const fork = mesh(new THREE.CylinderGeometry(0.006, 0.009, 0.08, 5), M.bark, tw);
+      fork.position.set(-side * 0.02, 0.1, 0);
+      fork.rotation.z = side * 0.7;
+      const fork2 = mesh(new THREE.CylinderGeometry(0.005, 0.008, 0.06, 5), M.bark, tw);
+      fork2.position.set(side * 0.015, 0.06, 0.005);
+      fork2.rotation.z = -side * 0.8;
+      for (const [x, y, rz] of [
+        [0, 0.16, 0],
+        [-side * 0.045, 0.13, side * 0.9],
+        [side * 0.04, 0.075, -side * 1.1],
+      ]) {
+        const l = mesh(leafGeo(0.035, 0.06, 0.3), M.sprout, tw);
+        l.position.set(x, y, 0);
+        l.rotation.set(0.2, 0, rz);
+      }
+    }
+    leafCrown();
+    const b = bloomAt(head, M.bloom);
+    b.position.set(0.12, 0.1, -0.06);
+    b.lookAt(0.9, 0.9, -0.6);
+  } else if (lk.head === 'flowers') {
+    // a ring of blossoms in three colours, with leaves between
+    const mats = [M.bloom, M.bloom2, M.bloom3];
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const g = new THREE.Group();
+      g.position.set(Math.sin(a) * 0.15, 0.085, Math.cos(a) * 0.145);
+      g.rotation.set(-0.75, a, 0, 'YXZ');
+      head.add(g);
+      const b = bloomAt(g, mats[i % 3], 0.85);
+      b.rotation.y = Math.PI; // face outward
+      const l = mesh(leafGeo(0.035, 0.07, 0.3), M.sprout, g);
+      l.rotation.set(0, Math.PI, 1.8);
+      l.position.set(0.04, 0, 0.01);
+    }
+  } else if (lk.head === 'mushroom') {
+    // a toadstool hat, worn at a jaunty angle
+    const hat = new THREE.Group();
+    hat.position.set(0, 0.11, 0.01);
+    hat.rotation.set(0.1, 0, 0.14);
+    head.add(hat);
+    const cap = mesh(new THREE.SphereGeometry(0.22, 18, 9, 0, Math.PI * 2, 0, Math.PI / 2), M.capRed, hat);
+    cap.scale.y = 0.62;
+    const under = mesh(new THREE.CylinderGeometry(0.215, 0.16, 0.03, 18), M.capUnder, hat);
+    under.position.y = -0.01;
+    for (let i = 0; i < 9; i++) {
+      const a = i * 2.4;
+      const r = i === 0 ? 0 : 0.06 + (i % 3) * 0.045;
+      const d = mesh(new THREE.SphereGeometry(0.02 + (i % 2) * 0.008, 6, 4), M.capDot, hat);
+      const y = Math.sqrt(Math.max(0, 1 - (r / 0.22) ** 2)) * 0.22 * 0.62;
+      d.position.set(Math.cos(a) * r, y - 0.004, Math.sin(a) * r);
+      d.scale.y = 0.45;
+    }
+  }
+}
+
+/** What she wears on her back (the satchel strap is always there). */
+function buildBack(lk: Look, spine: THREE.Group, M: Mats) {
+  let cape: THREE.Group | null = null;
+  const wings: THREE.Group[] = [];
+  if (lk.back === 'cape') {
+    cape = joint(spine, 0, 0.43, 0.1);
+    // overlapping big leaves hanging from the shoulders, with a twine tie at the collar
+    for (let i = 0; i < 5; i++) {
+      const t = i / 4 - 0.5;
+      const l = mesh(leafGeo(0.2, 0.62 - Math.abs(t) * 0.16, 0.18), i % 2 ? M.leafLight : M.leafDark, cape);
+      l.position.set(t * 0.2, 0.02, 0.01 - Math.abs(t) * 0.03);
+      // hang down and slightly back, clear of the skirt
+      l.rotation.set(Math.PI - 0.26, 0, -t * 0.35);
+    }
+    const tie = mesh(new THREE.TorusGeometry(0.1, 0.012, 4, 14, Math.PI), M.twine, cape);
+    tie.rotation.set(-Math.PI / 2, 0, 0);
+    tie.position.set(0, 0.0, -0.04);
+  } else if (lk.back === 'wings') {
+    for (const side of [-1, 1]) {
+      const w = joint(spine, side * 0.04, 0.33, 0.085);
+      // upper and lower petals, flat against the back's plane, splaying outward
+      const up = mesh(leafGeo(0.2, 0.4, 0.08), M.wing, w);
+      up.rotation.set(0, 0, -side * 0.95);
+      const lo = mesh(leafGeo(0.13, 0.26, 0.08), M.wing, w);
+      lo.rotation.set(0, 0, -side * 2.2);
+      lo.position.y = -0.03;
+      w.userData.side = side;
+      wings.push(w);
+    }
+  }
+  return { cape, wings };
+}
+
+function buildHandTools(hand: THREE.Group, M: Mats): Record<ToolId, THREE.Object3D> {
   const tweezers = joint(hand, 0, -0.04, -0.01);
   for (const s of [-1, 1]) {
     const arm = mesh(new THREE.BoxGeometry(0.008, 0.008, 0.16), M.metal, tweezers);
@@ -635,7 +844,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     const target =
       -(stream * (0.35 + i * 0.12) + fall * 0.4) - lean * (i === 0 ? 1 : 0) + Math.sin(time * 1.3 - i * 0.6) * 0.04;
     const sway = Math.sin(p - i * 0.7) * 0.08 * move + Math.sin(time * 0.9 - i) * 0.03;
-    h.rotation.x += (target - h.rotation.x) * Math.min(1, dt * (8 - i * 2));
+    h.rotation.x += (target - h.rotation.x) * Math.min(1, dt * Math.max(2.5, 8 - i * 1.5));
     h.rotation.z += (sway - h.rotation.z) * Math.min(1, dt * 6);
   }
   for (const [i, l] of rig.locks.entries()) {
@@ -647,6 +856,20 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
         l.rotation.x) *
       Math.min(1, dt * 6);
     l.rotation.z = side * (0.05 + Math.abs(Math.sin(p)) * 0.08 * move);
+  }
+
+  // Cape billows out behind her with speed and when falling.
+  if (rig.cape) {
+    const target = -(stream * 0.75 + fall * 0.5) - lean * 0.9 + Math.sin(time * 1.4) * 0.02 - (s.riding ? 0.25 : 0);
+    rig.cape.rotation.x += (target - rig.cape.rotation.x) * Math.min(1, dt * 5);
+    rig.cape.rotation.z = Math.sin(p) * 0.06 * move;
+  }
+  // Wings: a slow, idle shimmer, a quick flutter on the move, and a fast beat in the air.
+  for (const w of rig.wings) {
+    const side = w.userData.side as number;
+    const rate = lerp(lerp(2.2, 9, move), 18, air);
+    const amp = lerp(lerp(0.12, 0.2, move), 0.45, air);
+    w.rotation.y = -side * (0.35 + Math.sin(time * rate) * amp); // sweep back from the shoulders
   }
 
   // Blink every few seconds.

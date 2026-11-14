@@ -133,10 +133,21 @@
           </p>
           <div id="slots"></div>
           <div class="home-links">
+            <button class="link" id="open-look">Customize</button>
             <button class="link" id="open-settings">Settings</button>
             <button class="link" id="open-credits">Credits</button>
           </div>
           <p class="small">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+        </div>
+
+        <div id="home-look" class="home-panel hidden">
+          <h2>Your druid</h2>
+          <div class="look">
+            <canvas id="look-preview" aria-label="Character preview (drag to turn)"></canvas>
+            <div id="look-opts"></div>
+          </div>
+          <p class="small">Drag the preview to turn around. Your look is shared by all your worlds.</p>
+          <button class="back">Done</button>
         </div>
 
         <div id="home-settings" class="home-panel hidden">
