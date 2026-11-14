@@ -561,19 +561,27 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     pose.headY = Math.sin(time * 0.4) * 0.2;
   }
 
-  // Rake: carried like a staff, or planted in the soil and drawn back and forth while raking.
+  // Rake: carried over the right shoulder (gripped at the chest, the handle resting on top
+  // of the shoulder, the head riding up behind her), or planted in the soil and drawn back
+  // and forth while raking.
   if (s.tool === 'rake') {
     const r = rig.tools.rake;
     const raking = work > 0.3;
-    const want = raking ? rig.hips : rig.arms[1].hand;
+    const want = raking ? rig.hips : rig.spine;
     if (r.parent !== want) want.add(r);
     if (raking) {
       const pull = Math.sin(time * 7) * 0.12;
       r.position.set(0.1, 0.02, -0.28 - pull);
       r.rotation.set(0.72, 0, 0);
     } else {
-      r.position.set(0, -0.04, 0);
-      r.rotation.set(Math.PI - 0.12, 0, 0);
+      // Handle runs up and back (-y of the rake → (0, 0.5, 0.87)), tines turned down.
+      r.position.set(0.15, 0.34, -0.16);
+      r.rotation.set(-2.09, Math.PI, 0);
+      // Right hand holds the grip: upper arm hangs, forearm folds up to the chest.
+      const hold = 1 - (s.riding ? 0 : air * 0.3);
+      pose.rSh = lerp(pose.rSh, 0.05, hold);
+      pose.rShZ = lerp(pose.rShZ, 0.08, hold);
+      pose.rElbow = lerp(pose.rElbow, 2.45, hold);
     }
   }
 
