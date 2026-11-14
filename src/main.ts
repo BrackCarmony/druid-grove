@@ -1071,7 +1071,8 @@ renderView();
 function playEnding() {
   if (menuOpen) openMenu(null);
   showBuild(false);
-  ending.play(() => toast('The moon is whole again. Thank you, little nymph.'));
+  // Named for whoever she (or he) is playing: a nymph or a sylvan.
+  ending.play(() => toast(`The moon is whole again. Thank you, little ${BODY_NAMES[look.body].toLowerCase()}.`));
 }
 
 function startGame(i: number) {
