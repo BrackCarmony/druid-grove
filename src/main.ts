@@ -929,17 +929,6 @@ function renderSlots() {
     go.textContent = info ? 'Continue' : 'New world';
     go.onclick = () => startGame(i);
     row.append(text, go);
-    if (info && (info.moonRestored || (info.planetPct ?? 0) >= 99.95)) {
-      // Finished worlds can watch the ending again.
-      const watch = document.createElement('button');
-      watch.className = 'save-slot-watch';
-      watch.textContent = 'Watch ending';
-      watch.onclick = () => {
-        startGame(i);
-        playEnding();
-      };
-      row.append(watch);
-    }
     if (info) {
       const del = document.createElement('button');
       del.className = 'save-slot-delete';
