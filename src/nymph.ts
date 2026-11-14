@@ -110,16 +110,6 @@ export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
     p.rotation.set(0, Math.PI, (i / 5) * Math.PI * 2);
   }
   mesh(new THREE.SphereGeometry(0.015, 6, 4), M.bloomHeart, beltBloom).position.z = -0.01;
-  // inner, shorter layer of light leaves (static)
-  for (let i = 0; i < 10; i++) {
-    const a = ((i + 0.5) / 10) * Math.PI * 2;
-    const g = new THREE.Group();
-    g.position.set(Math.sin(a) * 0.115, 0.03, Math.cos(a) * 0.09);
-    g.rotation.y = a;
-    hips.add(g);
-    const leaf = mesh(leafGeo(0.15, male ? 0.22 : 0.3), M.leafLight, g);
-    leaf.rotation.x = Math.PI - 0.12; // flares less than the outer petals, so it stays under them
-  }
   // satchel on the left hip, for seeds
   const bag = new THREE.Group();
   bag.position.set(-0.19, -0.06, 0.03);
@@ -142,10 +132,18 @@ export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
   for (let i = 0; i < 9; i++) {
     const a = (i / 9) * Math.PI * 2;
     const g = joint(hips, Math.sin(a) * 0.125, 0.05, Math.cos(a) * 0.1);
+    // Yaw first, then flare about the petal's own (tangent) axis, so every petal flares
+    // outward from where it sits, not just the ones at the front and back.
+    g.rotation.order = 'YXZ';
     g.rotation.y = a;
     // his is a short leaf tunic, hers a knee-length petal skirt
     const leaf = mesh(male ? leafGeo(0.22, 0.32, 0.25) : leafGeo(0.2, 0.44), M.leafDark, g);
     leaf.rotation.x = Math.PI;
+    // A shorter, lighter leaf tucked just inside, between this petal and the next. It rides
+    // on the same joint, so it gets kicked out of the way of her legs with the petal.
+    const inner = mesh(leafGeo(0.15, male ? 0.22 : 0.3), M.leafLight, g);
+    inner.position.set(0.045, 0, -0.012);
+    inner.rotation.set(Math.PI + 0.06, 0.18, 0);
     petals.push(g);
   }
 
