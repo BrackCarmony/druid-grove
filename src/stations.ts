@@ -101,7 +101,11 @@ export class Stations {
   ) {
     const hx = 5;
     const hz = 7;
-    this.hollow.set(hx, world.heightAt(hx, hz), hz);
+    // The log rests on the lowest ground along its length; higher ground just buries a bit of it.
+    let lo = Infinity;
+    for (const dx of [-1.8, -0.9, 0, 0.9, 1.8])
+      for (const dz of [-0.6, 0.6]) lo = Math.min(lo, world.heightAt(hx + dx, hz + dz));
+    this.hollow.set(hx, lo, hz);
     this.group.add(this.buildHollow());
     colliders.add(hx - 1.1, hz, 0.75);
     colliders.add(hx + 0.2, hz, 0.75);
@@ -122,7 +126,9 @@ export class Stations {
     // spilling seed pile
     for (let i = 0; i < 14; i++) {
       const s = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12 + Math.random() * 0.08, 0), lam(0x9a6a3a));
-      s.position.set(-1.9 - Math.random() * 0.9, 0.1 + Math.random() * 0.15, (Math.random() - 0.5) * 1.2);
+      s.position.set(-1.9 - Math.random() * 0.9, 0, (Math.random() - 0.5) * 1.2);
+      s.name = 'ground';
+      s.userData.lift = 0.06 + Math.random() * 0.1; // a loose heap
       g.add(s);
     }
     const moss = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2), lam(0x6aa83f));
@@ -142,6 +148,7 @@ export class Stations {
     beam.position.y = 12;
     g.add(beam);
     g.position.copy(this.hollow);
+    this.world.groundChildren(g, this.hollow.y);
     return g;
   }
 
@@ -154,10 +161,12 @@ export class Stations {
   }
 
   build(x: number, z: number, stock = 0): Cache {
-    const y = this.world.heightAt(x, z);
+    // On the highest ground under it (so the squirrel hole isn't buried); the stump runs
+    // 2 m into the earth to meet lower ground.
+    const y = this.world.heightRange(x, z, 0.7).max;
     const obj = new THREE.Group();
-    const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.7, 1.1, 9), lam(0x7a5236));
-    stump.position.y = 0.5;
+    const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 3.1, 9), lam(0x7a5236));
+    stump.position.y = 1.05 - 1.55;
     const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 9), lam(0xc9a27a));
     top.position.y = 1.07;
     const hole = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8), lam(0x24160c));

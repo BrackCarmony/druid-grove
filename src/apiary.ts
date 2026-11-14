@@ -101,8 +101,9 @@ function hiveModel() {
   const g = new THREE.Group();
   const straw = lam(0xd9a24a);
   const dark = lam(0xa8742c);
-  const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 0.5, 8), lam(0x6b4a33));
-  stand.position.y = 0.25;
+  // The stand runs 2 m into the ground so it meets the terrain on any slope.
+  const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 2.5, 8), lam(0x6b4a33));
+  stand.position.y = 0.5 - 1.25;
   g.add(stand);
   // a classic straw skep: stacked coils shrinking toward the top
   for (let k = 0; k < 6; k++) {
@@ -465,7 +466,8 @@ export class Apiary {
 
   build(x: number, z: number, honey = 0): Hive {
     const obj = hiveModel();
-    obj.position.set(x, this.world.heightAt(x, z), z);
+    // On the highest ground under the stand, so the skep is never half-buried.
+    obj.position.set(x, this.world.heightRange(x, z, 0.65).max, z);
     const near = this.nearestDen(x, z).den;
     obj.rotation.y = Math.atan2(wrap(near.x - x), wrap(near.z - z));
     this.group.add(obj);

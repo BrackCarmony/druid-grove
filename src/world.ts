@@ -376,6 +376,28 @@ export class World {
     return tileIndex(Math.floor(x + HALF), Math.floor(z + HALF));
   }
 
+  /** Lowest and highest ground within a circle (centre plus 12 points round the rim). */
+  heightRange(x: number, z: number, r: number) {
+    let min = this.heightAt(x, z);
+    let max = min;
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const h = this.heightAt(x + Math.cos(a) * r, z + Math.sin(a) * r);
+      if (h < min) min = h;
+      if (h > max) max = h;
+    }
+    return { min, max };
+  }
+
+  /** Stand each child named 'ground' on the terrain under it (children of an unrotated group at `base`). */
+  groundChildren(obj: THREE.Object3D, base: number) {
+    for (const c of obj.children) {
+      if (c.name !== 'ground') continue;
+      c.position.y =
+        this.heightAt(obj.position.x + c.position.x, obj.position.z + c.position.z) - base + (c.userData.lift ?? 0);
+    }
+  }
+
   heightAt(x: number, z: number): number {
     const fx = x + HALF;
     const fz = z + HALF;

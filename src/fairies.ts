@@ -71,15 +71,15 @@ function ringModel() {
     dot.position.set(0.08, 0.5, 0.05);
     m.add(st, cap, dot);
     m.scale.setScalar(s);
+    m.name = 'ground';
     m.position.set(Math.cos(a) * 1.8, 0, Math.sin(a) * 1.8);
     g.add(m);
   }
   const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(1.6, 24),
+    new THREE.CircleGeometry(1.6, 24, 0, Math.PI * 2).rotateX(-Math.PI / 2), // draped over the ground in build()
     new THREE.MeshBasicMaterial({ color: 0xe0b8ff, transparent: true, opacity: 0.25, depthWrite: false }),
   );
-  glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.05;
+  glow.name = 'glow';
   g.add(glow);
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.2, 0.9, 18, 10, 1, true),
@@ -154,7 +154,15 @@ export class FairyRings {
 
   build(x: number, z: number): Ring {
     const obj = ringModel();
-    obj.position.set(x, this.world.heightAt(x, z), z);
+    const base = this.world.heightAt(x, z);
+    obj.position.set(x, base, z);
+    this.world.groundChildren(obj, base);
+    // Drape the glow over the terrain, just above it.
+    const glow = obj.getObjectByName('glow') as THREE.Mesh;
+    const pos = glow.geometry.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < pos.count; i++)
+      pos.setY(i, this.world.heightAt(x + pos.getX(i), z + pos.getZ(i)) - base + 0.06);
+    pos.needsUpdate = true;
     this.group.add(obj);
     const ring: Ring = {
       x,
