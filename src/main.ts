@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Apiary } from './apiary';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
+import { DayNight, NEW_WORLD_TIME } from './daynight';
 import { Perf } from './perf';
 import { onSettings, settings, updateSettings, VIEW_SCALE, ViewDistance } from './settings';
 import { deleteSlot, lastSlot, setLastSlot, SLOT_COUNT, slotInfo, slotKey } from './slots';
@@ -34,10 +35,10 @@ scene.fog = new THREE.FogExp2(FOG_HEX, sharedUniforms.uFogDensity.value);
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 3000);
 scene.add(camera);
 
-const sunDir = sharedUniforms.uSunDir.value;
 const sun = new THREE.DirectionalLight(0xffdcb8, 2.2);
-sun.position.copy(sunDir).multiplyScalar(100);
-scene.add(sun, new THREE.HemisphereLight(0xc7a6d6, 0x5a4636, 1.1));
+const hemi = new THREE.HemisphereLight(0xc7a6d6, 0x5a4636, 1.1);
+scene.add(sun, hemi);
+const dayNight = new DayNight(scene, sun, hemi); // moves the sun and recolours sky, haze and light
 
 const tScript = performance.now();
 const world = new World();
@@ -114,6 +115,7 @@ interface SaveExtra {
   stones?: { x: number; z: number }[]; // beyond the home waystone
   trampled?: number[]; // tiles whose boulder the stag smashed
   playTime?: number; // seconds played in this world
+  timeOfDay?: number; // 0..1 through the day/night cycle
 }
 
 // The world is generated up front (it's the same planet for every slot); the save
@@ -135,6 +137,7 @@ function loadSlot(i: number) {
     for (const t of extra.trampled ?? []) scenery.smash(t);
     playTime = extra.playTime ?? 0;
   }
+  dayNight.time = extra?.timeOfDay ?? NEW_WORLD_TIME;
   // Boulders can't sit inside a den mound (older saves may have some).
   for (const d of apiary.dens) scenery.trample(d.x, d.z, 4.5, () => {});
   apiary.syncBears(extra?.bearHomes);
@@ -764,6 +767,7 @@ function saveNow() {
     stones: waystones.stones.slice(1).map((w) => ({ x: w.x, z: w.z })),
     trampled: [...scenery.trampled],
     playTime,
+    timeOfDay: dayNight.time,
   };
   garden.save(player, extra);
 }
@@ -1026,6 +1030,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const time = clock.elapsedTime;
   sharedUniforms.uTime.value = time;
+  dayNight.update(dt);
 
   if (!menuOpen) player.update(dt, time);
   perf.mark('player');
@@ -1206,6 +1211,7 @@ frame();
   waystones,
   travel,
   perf,
+  dayNight,
   chimes,
   terrain,
   scenery,

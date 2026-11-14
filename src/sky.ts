@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { mulberry32 } from './noise';
-import { GLSL_NOISE, sharedUniforms } from './terrain';
+import { GLSL_NOISE, lightUniforms, sharedUniforms } from './terrain';
+
+const MOON_POS = new THREE.Vector3(260, 330, -620);
+/** Direction to the broken moon (it hangs in the same place all day and night). */
+export const MOON_DIR = MOON_POS.clone().normalize();
 
 // Sky dome: dusky gradient, stars overhead, a low sun, and the shattered moon
 // whose debris ring arcs across the sky - the reason the world is broken.
@@ -13,7 +17,7 @@ export function createSky(): THREE.Group {
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
-      uniforms: { ...sharedUniforms },
+      uniforms: { ...sharedUniforms, ...lightUniforms },
       vertexShader: /* glsl */ `
         varying vec3 vDir;
         void main(){
@@ -23,8 +27,8 @@ export function createSky(): THREE.Group {
         }
       `,
       fragmentShader: /* glsl */ `
-        uniform vec3 uSunDir, uFogColor;
-        uniform float uTime;
+        uniform vec3 uSunDir, uFogColor, uSkyTop, uSkyMid, uSunGlow;
+        uniform float uTime, uStars;
         varying vec3 vDir;
         ${GLSL_NOISE}
         float hash31(vec3 p){ p = fract(p*vec3(0.1031,0.1030,0.0973)); p += dot(p, p.yxz+33.33); return fract((p.x+p.y)*p.z); }
@@ -43,17 +47,16 @@ export function createSky(): THREE.Group {
         void main(){
           vec3 d = normalize(vDir);
           float h = d.y;
-          vec3 top = vec3(0.10,0.08,0.24);
-          vec3 mid = vec3(0.45,0.30,0.52);
-          vec3 col = mix(uFogColor, mid, smoothstep(0.0, 0.25, h));
-          col = mix(col, top, smoothstep(0.2, 0.75, h));
+          vec3 col = mix(uFogColor, uSkyMid, smoothstep(0.0, 0.25, h));
+          col = mix(col, uSkyTop, smoothstep(0.2, 0.75, h));
           col = mix(col, uFogColor, smoothstep(0.0,-0.2,h)); // matches the haze at the edge of the drawn world
           float sd = max(dot(d, uSunDir), 0.0);
-          col += vec3(1.0,0.62,0.38) * pow(sd, 8.0) * 0.55;
-          col += vec3(1.0,0.9,0.7) * smoothstep(0.9985, 0.9993, sd);
+          float sunVis = smoothstep(-0.08, 0.02, uSunDir.y); // gone once it has set
+          col += uSunGlow * pow(sd, 8.0) * 0.55 * sunVis;
+          col += vec3(1.0,0.9,0.7) * smoothstep(0.9985, 0.9993, sd) * sunVis;
           // stars: round points in 3D cells over the sphere, so they're even all the way up
           float st = stars(d, 70.0, 0.965, 0.22) + stars(d, 32.0, 0.94, 0.16) * 1.4;
-          col += st * smoothstep(0.15, 0.6, h) * 0.9;
+          col += st * smoothstep(0.15, 0.6, h) * 0.9 * uStars;
           gl_FragColor = vec4(col, 1.0);
         }
       `,
@@ -88,7 +91,7 @@ export function createSky(): THREE.Group {
     chunk.rotation.set(rng() * 6, rng() * 6, rng() * 6);
     moonGroup.add(chunk);
   }
-  moonGroup.position.set(260, 330, -620);
+  moonGroup.position.copy(MOON_POS);
   moonGroup.rotation.z = -0.35;
   moonGroup.lookAt(0, 0, 0);
   moonGroup.rotateY(Math.PI / 2);

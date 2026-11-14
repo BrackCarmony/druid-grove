@@ -11,6 +11,19 @@ export const sharedUniforms = {
   uFogDensity: { value: 0.0065 },
 };
 
+// Set every frame by the day/night cycle (see daynight.ts).
+/** Uniforms for the sky and terrain lighting. Colours here are raw display values. */
+export const lightUniforms = {
+  uKeyDir: { value: new THREE.Vector3(0, 1, 0) }, // where the main light comes from (sun or moon)
+  uKeyCol: { value: new THREE.Color() },
+  uAmbLow: { value: new THREE.Color() }, // ambient on surfaces facing down/sideways
+  uAmbHigh: { value: new THREE.Color() }, // ambient on surfaces facing up
+  uSkyTop: { value: new THREE.Color() },
+  uSkyMid: { value: new THREE.Color() },
+  uSunGlow: { value: new THREE.Color() },
+  uStars: { value: 1 },
+};
+
 export const cursorUniforms = {
   uCursor: { value: new THREE.Vector3(0, 0, 0) }, // x, z, radius
   uCursorState: { value: 0 }, // 0 hidden, 1 ok, 2 blocked
@@ -118,6 +131,7 @@ export function createTerrain(world: World): Terrain {
       ...sharedUniforms,
       ...cursorUniforms,
       ...planetUniforms,
+      ...lightUniforms,
       uState: { value: world.stateTex },
       uStatic: { value: world.staticTex },
       uHeight: { value: world.heightTex },
@@ -158,7 +172,7 @@ export function createTerrain(world: World): Terrain {
       uniform sampler2D uState;
       uniform sampler2D uStatic;
       uniform float uHalf, uSize, uTime, uFogDensity, uDrawR;
-      uniform vec3 uSunDir, uFogColor;
+      uniform vec3 uFogColor, uKeyDir, uKeyCol, uAmbLow, uAmbHigh;
       uniform vec3 uCursor;
       uniform float uCursorState;
       varying vec3 vWorld;
@@ -216,10 +230,9 @@ export function createTerrain(world: World): Terrain {
 
         // --- lighting ---
         vec3 N = normalize(vNormal);
-        float diff = max(dot(N, uSunDir), 0.0);
-        vec3 sun = vec3(1.0,0.86,0.72)*1.05;
-        vec3 sky = mix(vec3(0.42,0.36,0.55), vec3(0.75,0.62,0.68), N.y*0.5+0.5);
-        vec3 lit = col*(sun*diff + sky*0.55);
+        float diff = max(dot(N, uKeyDir), 0.0);
+        vec3 sky = mix(uAmbLow, uAmbHigh, N.y*0.5+0.5);
+        vec3 lit = col*(uKeyCol*diff + sky*0.55);
         lit += wet*sc.b*pow(pnoise(p*8.0+uTime*2.0, S*8.0),12.0)*0.8;
 
         // tile cursor (compared the short way round the planet)
