@@ -292,4 +292,91 @@ export class Chimes {
   deny() {
     this.note(-12, 0.15, 0.1, 'square');
   }
+
+  /** Filtered noise with a gain envelope (attack, hold, release in seconds). */
+  private noise(freq: number, q: number, vol: number, attack: number, hold: number, release: number, sweepTo = freq) {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    const t = ctx.currentTime;
+    const len = attack + hold + release + 0.1;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * len), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < d.length; i++) {
+      last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02; // brown-ish: deep and rumbly
+      d[i] = last * 3.5;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.Q.value = q;
+    f.frequency.setValueAtTime(freq, t);
+    f.frequency.exponentialRampToValueAtTime(sweepTo, t + attack + hold + release);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + attack);
+    g.gain.setValueAtTime(vol, t + attack + hold);
+    g.gain.linearRampToValueAtTime(0, t + attack + hold + release);
+    src.connect(f).connect(g).connect(this.master!);
+    src.start(t);
+  }
+
+  /** The ground groaning as something huge stirs beneath it. */
+  rumble(seconds: number) {
+    this.noise(140, 1, 1.4, seconds * 0.3, seconds * 0.4, seconds * 0.3);
+  }
+
+  /** A great dragon's roar: a growl that swells and falls, over a breathy rush. */
+  roar() {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    const t = ctx.currentTime;
+    const dur = 2.6;
+    for (const [base, vol] of [
+      [70, 0.32],
+      [104, 0.22],
+      [141, 0.12],
+    ]) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(base * 0.8, t);
+      o.frequency.linearRampToValueAtTime(base * 1.25, t + 0.5);
+      o.frequency.linearRampToValueAtTime(base * 0.7, t + dur);
+      // A fast wobble gives it a throaty growl.
+      const lfo = ctx.createOscillator();
+      lfo.frequency.value = 23;
+      const lg = ctx.createGain();
+      lg.gain.value = base * 0.12;
+      lfo.connect(lg).connect(o.frequency);
+      const f = ctx.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.setValueAtTime(400, t);
+      f.frequency.linearRampToValueAtTime(1400, t + 0.5);
+      f.frequency.linearRampToValueAtTime(300, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.25);
+      g.gain.setValueAtTime(vol, t + 1.4);
+      g.gain.linearRampToValueAtTime(0, t + dur);
+      o.connect(f).connect(g).connect(this.master!);
+      o.start(t);
+      lfo.start(t);
+      o.stop(t + dur + 0.1);
+      lfo.stop(t + dur + 0.1);
+    }
+    this.noise(900, 0.7, 0.9, 0.2, 1.3, 1.1, 250);
+  }
+
+  /** Wingbeats: a soft whump of air. */
+  whump(vol = 1) {
+    this.noise(220, 1.5, 1.6 * vol, 0.05, 0.05, 0.4, 80);
+  }
+
+  /** The moon made whole: a slow, bright, rising shimmer of chimes. */
+  shimmer() {
+    const notes = [0, 7, 12, 16, 19, 24, 28, 31, 36];
+    notes.forEach((s, i) => setTimeout(() => this.note(s - 12, 3.2, 0.16), i * 220));
+    notes.forEach((s, i) => setTimeout(() => this.note(s, 2.4, 0.08, 'triangle'), 900 + i * 160));
+  }
 }

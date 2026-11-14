@@ -9,6 +9,13 @@ export const MOON_DIR = MOON_POS.clone().normalize();
 // Sky dome: dusky gradient, stars overhead, a low sun, and the shattered moon
 // whose debris ring arcs across the sky - the reason the world is broken.
 
+let moonState: { set(t: number, flash: number): void } | null = null;
+
+/** Mend the moon: 0 shattered, 1 whole (pieces flown home, bite filled, glowing). flash adds a burst of light. */
+export function restoreMoon(t: number, flash = 0) {
+  moonState?.set(t, flash);
+}
+
 export function createSky(): THREE.Group {
   const group = new THREE.Group();
 
@@ -74,15 +81,22 @@ export function createSky(): THREE.Group {
   const moon = new THREE.Mesh(new THREE.IcosahedronGeometry(60, 2), moonMat);
   const posAttr = moon.geometry.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3();
+  const whole = new Float32Array(posAttr.count * 3); // the moon as it was, for restoring it
+  const broken = new Float32Array(posAttr.count * 3);
+  // Same bumpiness for every copy of a corner (the icosahedron repeats them per face).
+  const bump = (p: THREE.Vector3) => 0.94 + 0.08 * (0.5 + 0.5 * Math.sin(p.x * 0.37 + p.y * 0.61 + p.z * 0.83));
   for (let i = 0; i < posAttr.count; i++) {
     v.fromBufferAttribute(posAttr, i);
+    v.multiplyScalar(bump(v));
+    v.toArray(whole, i * 3);
     // carve a bite out of one side
     if (v.x > 25 && v.y > -10) v.multiplyScalar(0.72);
-    else v.multiplyScalar(0.94 + rng() * 0.08);
+    v.toArray(broken, i * 3);
     posAttr.setXYZ(i, v.x, v.y, v.z);
   }
   moon.geometry.computeVertexNormals();
   moonGroup.add(moon);
+  const chunks: { mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; spin: THREE.Euler; delay: number }[] = [];
   for (let i = 0; i < 40; i++) {
     const r = 3 + rng() * 12;
     const chunk = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), rng() > 0.5 ? moonMat : darkMat);
@@ -90,11 +104,48 @@ export function createSky(): THREE.Group {
     chunk.position.set(60 + t * 260, -10 + (rng() - 0.3) * 60 * (0.3 + t), (rng() - 0.5) * 90);
     chunk.rotation.set(rng() * 6, rng() * 6, rng() * 6);
     moonGroup.add(chunk);
+    // Where it flies home to: somewhere in the bite.
+    const to = new THREE.Vector3(1, 0.15 + rng() * 0.7, (rng() - 0.5) * 1.2).normalize().multiplyScalar(48);
+    chunks.push({
+      mesh: chunk,
+      from: chunk.position.clone(),
+      to,
+      spin: chunk.rotation.clone(),
+      delay: t * 0.35, // the nearest pieces go first
+    });
   }
+  // A soft halo that grows as the moon is made whole.
+  const haloTex = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d')!;
+    const grd = g.createRadialGradient(64, 64, 20, 64, 64, 64);
+    grd.addColorStop(0, 'rgba(255,255,255,0.9)');
+    grd.addColorStop(0.45, 'rgba(255,255,255,0.3)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const halo = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: haloTex,
+      color: 0xe8f4ff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      fog: false,
+      blending: THREE.AdditiveBlending,
+    }),
+  );
+  halo.scale.setScalar(240);
+  moonGroup.add(halo);
   moonGroup.position.copy(MOON_POS);
   moonGroup.rotation.z = -0.35;
   moonGroup.lookAt(0, 0, 0);
-  moonGroup.rotateY(Math.PI / 2);
+  // Turned so the bite and the trail of broken pieces show from the ground, side-on.
+  moonGroup.rotateY(-0.45);
+  moonGroup.rotateZ(0.35);
   group.add(moonGroup);
 
   // Debris ring arcing across the sky.
@@ -123,6 +174,31 @@ export function createSky(): THREE.Group {
   ring.rotation.set(0.42, 0, 0.28);
   ring.position.y = 120;
   group.add(ring);
+
+  const brokenCol = moonMat.color.clone();
+  const wholeCol = new THREE.Color(0xf4eefc);
+  const ease = (x: number) => x * x * (3 - 2 * x);
+  moonState = {
+    set(t: number, flash: number) {
+      // Pieces fly home over the first 80%, shrinking into the surface as they arrive.
+      for (const c of chunks) {
+        const k = ease(THREE.MathUtils.clamp((t - c.delay) / 0.45, 0, 1));
+        c.mesh.position.lerpVectors(c.from, c.to, k);
+        c.mesh.rotation.set(c.spin.x + k * 4, c.spin.y + k * 3, c.spin.z);
+        c.mesh.scale.setScalar(1 - THREE.MathUtils.smoothstep(k, 0.85, 1));
+        c.mesh.visible = k < 1;
+      }
+      // The bite fills in as they land.
+      const f = ease(THREE.MathUtils.clamp((t - 0.35) / 0.5, 0, 1));
+      for (let i = 0; i < posAttr.count * 3; i++) posAttr.array[i] = broken[i] + (whole[i] - broken[i]) * f;
+      posAttr.needsUpdate = true;
+      moon.geometry.computeVertexNormals();
+      moonMat.color.lerpColors(brokenCol, wholeCol, f);
+      halo.material.opacity = 0.55 * f + flash;
+      halo.scale.setScalar(240 + flash * 400);
+      (ring.material as THREE.PointsMaterial).opacity = 0.75 - 0.55 * f;
+    },
+  };
 
   return group;
 }

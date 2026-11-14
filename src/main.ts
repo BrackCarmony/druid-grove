@@ -27,7 +27,8 @@ import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
 import { Player } from './player';
 import { DeadScenery, HeartTrees } from './props';
-import { createSky } from './sky';
+import { createSky, restoreMoon } from './sky';
+import { Ending } from './ending';
 import { Stations } from './stations';
 import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
 import { HALF, SOIL_NAMES, Soil, wdist, World, wrap } from './world';
@@ -75,6 +76,20 @@ scene.add(particles.points);
 const econ = new Economy();
 const chimes = new Chimes();
 const player = new Player(world, camera, colliders);
+// The ending: the dragon wakes and mends the moon once the whole planet is green.
+const ending = new Ending({
+  scene,
+  camera,
+  chimes,
+  playerPos: player.pos,
+  groundAt: (x, z) => world.heightAt(x, z),
+  setTimeOfDay: (t) => (dayNight.time = t),
+  isClear: (x, z, r) => colliders.clear(x, z, r),
+  teleport: (x, z) => {
+    player.pos.set(x, world.heightAt(x, z), z);
+  },
+});
+let moonRestored = false;
 // Stonebreaker Hooves: the stag smashes boulders instead of stopping at them.
 let lastCrunch = 0;
 player.trample = (x, z, r) => {
@@ -129,6 +144,7 @@ interface SaveExtra {
   trampled?: number[]; // tiles whose boulder the stag smashed
   playTime?: number; // seconds played in this world
   timeOfDay?: number; // 0..1 through the day/night cycle
+  moonRestored?: boolean; // reached 100% and saw the dragon mend the moon
 }
 
 // The world is generated up front (it's the same planet for every slot); the save
@@ -151,6 +167,8 @@ function loadSlot(i: number) {
     playTime = extra.playTime ?? 0;
   }
   dayNight.time = extra?.timeOfDay ?? NEW_WORLD_TIME;
+  moonRestored = extra?.moonRestored ?? false;
+  restoreMoon(moonRestored ? 1 : 0);
   // Boulders can't sit inside a den mound (older saves may have some).
   for (const d of apiary.dens) scenery.trample(d.x, d.z, 4.5, () => {});
   apiary.syncBears(extra?.bearHomes);
@@ -798,7 +816,7 @@ function updateRings() {
 }
 
 function saveNow() {
-  if (skipSave || activeSlot < 0) return;
+  if (skipSave || activeSlot < 0 || ending.active) return; // mid-ending she's been moved to the stage
   const extra: SaveExtra = {
     caches: stations.caches.map((c) => ({ x: c.x, z: c.z, stock: c.stock })),
     hives: apiary.hives.map((h) => ({ x: h.x, z: h.z, honey: h.honey })),
@@ -809,6 +827,7 @@ function saveNow() {
     trampled: [...scenery.trampled],
     playTime,
     timeOfDay: dayNight.time,
+    moonRestored,
   };
   garden.save(player, extra);
 }
@@ -858,6 +877,17 @@ function renderSlots() {
     go.textContent = info ? 'Continue' : 'New world';
     go.onclick = () => startGame(i);
     row.append(text, go);
+    if (info && (info.moonRestored || (info.planetPct ?? 0) >= 99.95)) {
+      // Finished worlds can watch the ending again.
+      const watch = document.createElement('button');
+      watch.className = 'save-slot-watch';
+      watch.textContent = 'Watch ending';
+      watch.onclick = () => {
+        startGame(i);
+        playEnding();
+      };
+      row.append(watch);
+    }
     if (info) {
       const del = document.createElement('button');
       del.className = 'save-slot-delete';
@@ -1038,6 +1068,12 @@ for (const b of viewButtons) {
 }
 renderView();
 
+function playEnding() {
+  if (menuOpen) openMenu(null);
+  showBuild(false);
+  ending.play(() => toast('The moon is whole again. Thank you, little nymph.'));
+}
+
 function startGame(i: number) {
   if (started) return;
   setLastSlot(i);
@@ -1058,19 +1094,23 @@ $('home').onclick = () => {
 };
 
 addEventListener('mousemove', (e) => {
-  if (document.pointerLockElement === canvas) player.look(e.movementX, e.movementY);
+  if (document.pointerLockElement === canvas && !ending.active) player.look(e.movementX, e.movementY);
 });
 addEventListener('mousedown', (e) => {
-  if (e.button === 0 && document.pointerLockElement === canvas) mouseDown = true;
+  if (e.button === 0 && document.pointerLockElement === canvas && !ending.active) mouseDown = true;
 });
 addEventListener('mouseup', (e) => {
   if (e.button === 0) mouseDown = false;
 });
 addEventListener('wheel', (e) => {
-  if (document.pointerLockElement === canvas) player.scroll(e.deltaY);
+  if (document.pointerLockElement === canvas && !ending.active) player.scroll(e.deltaY);
 });
 addEventListener('keydown', (e) => {
   if (!started || e.repeat) return;
+  if (ending.active) {
+    if (e.code === 'Escape') ending.skip();
+    return;
+  }
   if (e.code === 'Escape' && menuOpen) return openMenu(null);
   if (e.code === 'F3') {
     e.preventDefault();
@@ -1151,7 +1191,12 @@ function frame() {
   sharedUniforms.uTime.value = time;
   dayNight.update(dt);
 
+  if (ending.active) {
+    player.keys.clear(); // she stands and watches
+    mouseDown = false;
+  }
   if (!menuOpen) player.update(dt, time);
+  ending.update(dt); // takes the camera while it plays
   perf.mark('player');
   // Thin the haze as the camera pulls back so the whole land is visible.
   const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
@@ -1271,6 +1316,11 @@ function frame() {
       const p = planetProgress();
       const pctText = p.pct >= 99.95 ? '100' : p.pct < 10 ? p.pct.toFixed(2) : p.pct.toFixed(1);
       $('planet-pct').innerHTML = `Planet <b>${pctText}%</b> restored · ${p.done} / ${realGlades} glades`;
+      if (pctText === '100' && !moonRestored && started && !ending.active) {
+        moonRestored = true;
+        saveNow();
+        playEnding();
+      }
     }
     let hint = '';
     if (mount) {
@@ -1341,6 +1391,8 @@ frame();
   scenery,
   buildDen,
   buildStone,
+  ending,
+  playEnding,
   get mouseDown() {
     return mouseDown;
   },

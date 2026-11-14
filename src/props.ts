@@ -104,7 +104,7 @@ export class DeadScenery {
         const sc = 0.4 + rng() * (soil === Soil.Stone ? 1.6 : 0.7);
         s.set(sc, sc * (0.5 + rng() * 0.4), sc);
         p.set(ox, y + sc * 0.1, oz);
-        const c = sc > 0.45 ? this.colliders.add(ox, oz, sc * 0.5) : null;
+        const c = sc > 0.45 ? this.colliders.add(ox, oz, sc * 0.5, true) : null;
         this.rockAt.set(t, { i: nr, x: ox, y: y + sc * 0.3, z: oz, r: sc * 0.5, c });
         rocks.setMatrixAt(nr++, m.compose(p, q, s));
       } else if (r > 0.993 && soil !== Soil.Stone && ns < stumps.count) {
@@ -114,7 +114,7 @@ export class DeadScenery {
         s.set(sc, sc * (0.6 + rng() * 1.6), sc);
         p.set(ox, y - 0.05, oz);
         this.stumpAt.set(t, ns);
-        this.stumpCollider.set(t, this.colliders.add(ox, oz, 0.22 * sc));
+        this.stumpCollider.set(t, this.colliders.add(ox, oz, 0.22 * sc, true));
         stumps.setMatrixAt(ns++, m.compose(p, q, s));
       }
     }

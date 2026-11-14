@@ -7,6 +7,7 @@ export interface Circle {
   x: number;
   z: number;
   r: number;
+  minor?: boolean; // loose scenery (boulders, stumps) rather than something built or grown
 }
 
 const CELL = 4;
@@ -16,8 +17,8 @@ const key = (i: number, j: number) => (((i % NCELL) + NCELL) % NCELL) * NCELL + 
 export class Colliders {
   private cells = new Map<number, Circle[]>();
 
-  add(x: number, z: number, r: number): Circle {
-    const c = { x, z, r };
+  add(x: number, z: number, r: number, minor = false): Circle {
+    const c: Circle = { x, z, r, minor };
     this.forCells(c, (k) => {
       let list = this.cells.get(k);
       if (!list) this.cells.set(k, (list = []));
@@ -62,6 +63,25 @@ export class Colliders {
       }
       if (!moved) break;
     }
+  }
+
+  /** No collider (other than minor scenery) reaches within r of (x, z). */
+  clear(x: number, z: number, r: number) {
+    const i0 = Math.floor((x - r) / CELL) - 1;
+    const i1 = Math.floor((x + r) / CELL) + 1;
+    const j0 = Math.floor((z - r) / CELL) - 1;
+    const j1 = Math.floor((z + r) / CELL) + 1;
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        for (const c of this.cells.get(key(i, j)) ?? []) {
+          if (c.minor) continue;
+          const dx = wrap(x - c.x);
+          const dz = wrap(z - c.z);
+          if (dx * dx + dz * dz < (c.r + r) ** 2) return false;
+        }
+      }
+    }
+    return true;
   }
 
   private forCells(c: Circle, fn: (k: number) => void) {

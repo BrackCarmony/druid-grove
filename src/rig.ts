@@ -56,6 +56,14 @@ export function plain(g: THREE.BufferGeometry) {
   for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k);
   return n;
 }
+/** Like plain(), but keeps (or adds zero) UVs, for textured materials. */
+export function plainUV(g: THREE.BufferGeometry) {
+  const n = g.index ? g.toNonIndexed() : g;
+  for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal' && k !== 'uv') n.deleteAttribute(k);
+  if (!n.attributes.uv)
+    n.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(n.attributes.position.count * 2), 2));
+  return n;
+}
 export function merge(geos: THREE.BufferGeometry[]) {
   return mergeGeometries(geos.map(plain))!;
 }
@@ -75,7 +83,8 @@ export function bake(root: THREE.Object3D) {
         c.updateMatrix();
         const cm = m.clone().multiply(c.matrix);
         if (c instanceof THREE.Mesh) {
-          const g = plain(c.geometry.clone()).applyMatrix4(cm);
+          const textured = !!(c.material as THREE.MeshLambertMaterial).map;
+          const g = (textured ? plainUV : plain)(c.geometry.clone()).applyMatrix4(cm);
           const list = byMat.get(c.material as THREE.Material) ?? [];
           list.push(g);
           byMat.set(c.material as THREE.Material, list);

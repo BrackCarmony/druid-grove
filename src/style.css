@@ -601,6 +601,14 @@ button.remove {
 .save-slot-play {
   min-width: 104px;
 }
+.save-slot-watch {
+  background: #2f6a36;
+  color: #e8ffd8;
+  white-space: nowrap;
+}
+.save-slot-watch:hover {
+  background: #3c8445;
+}
 .save-slot-delete {
   background: transparent;
   color: var(--ink-dim);
@@ -773,4 +781,88 @@ button.link:hover,
 #rings-clear {
   display: block;
   margin: 0 0 10px auto;
+}
+
+/* ---------- the ending ---------- */
+body.cinematic #hud,
+body.cinematic #shop,
+body.cinematic #rings,
+body.cinematic #travel {
+  display: none !important;
+}
+#ending {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+#ending.hidden {
+  display: none;
+}
+#ending .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  animation: ending-bars 1.6s ease both;
+}
+#ending .bar.top {
+  top: 0;
+  transform-origin: top;
+}
+#ending .bar.bottom {
+  bottom: 0;
+  transform-origin: bottom;
+}
+@keyframes ending-bars {
+  from {
+    transform: scaleY(0);
+  }
+}
+body:not(.cinematic) #ending .bar {
+  transform: scaleY(0);
+  transition: transform 1.2s ease;
+  animation: none;
+}
+#ending .words {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 64%;
+  text-align: center;
+  font-family: 'Cinzel', Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(30px, 6.5vw, 84px);
+  letter-spacing: 0.04em;
+  color: #f4fbe8;
+  text-shadow:
+    0 0 24px rgba(150, 255, 140, 0.75),
+    0 0 4px rgba(20, 60, 20, 0.9),
+    0 3px 12px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+  transition:
+    opacity 1.8s ease,
+    transform 3s ease;
+}
+#ending .words.show {
+  opacity: 1;
+  transform: none;
+}
+#ending .skip {
+  position: absolute;
+  right: 20px;
+  bottom: calc(11vh + 12px);
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+}
+body:not(.cinematic) #ending .skip {
+  display: none;
+}
+#ending .white {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
 }

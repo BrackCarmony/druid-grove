@@ -15,6 +15,7 @@ export interface SlotInfo {
   savedAt: number | null;
   playTime: number; // seconds
   mounts: string[];
+  moonRestored: boolean;
 }
 
 export function slotInfo(i: number): SlotInfo | null {
@@ -30,6 +31,7 @@ export function slotInfo(i: number): SlotInfo | null {
       savedAt: d.savedAt ?? null,
       playTime: d.extra?.playTime ?? 0,
       mounts: d.mounts ?? [],
+      moonRestored: !!d.extra?.moonRestored,
     };
   } catch {
     return null;
