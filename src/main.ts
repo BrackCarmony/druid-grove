@@ -1179,7 +1179,6 @@ function goHome() {
   skipSave = true;
   location.reload(); // back to the home screen (it shows on every load)
 }
-$('home').onclick = () => goHome();
 
 addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas && !ending.active) player.look(e.movementX, e.movementY);
