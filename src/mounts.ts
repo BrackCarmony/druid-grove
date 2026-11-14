@@ -614,17 +614,23 @@ function stag(): MountModel {
       idleT = speed < 0.3 ? idleT + dt : 0;
       const grazing = idleT > 6 && (idleT - 6) % 14 < 5 ? 1 : 0;
       graze += (grazing - graze) * Math.min(1, dt * 1.5);
-      neck.rotation.x =
-        NECK_REST + graze * 1.25 + Math.sin(phase + 0.6) * 0.08 * g - move * 0.12 + Math.sin(time * 0.6) * 0.03 * idle;
-      neck.rotation.y = Math.sin(time * 0.23) * 0.3 * idle * (1 - graze);
-      head.rotation.x = HEAD_REST + graze * 0.5 + Math.sin(time * 0.41) * 0.06 * idle;
+      // Running, the neck pumps: at a gallop it swings down as the front hooves land and
+      // lifts on the push-off (one beat per stride), with the head nodding a beat behind;
+      // at a trot it bobs twice per stride and sways a little side to side.
+      const trot = move * (1 - g);
+      const pump = Math.sin(phase - 0.3) * 0.22 * g + Math.sin(phase * 2 - 0.5) * 0.07 * trot;
+      const nod = -Math.sin(phase - 1.0) * 0.14 * g + Math.sin(phase * 2 - 1.3) * 0.05 * trot;
+      neck.rotation.x = NECK_REST + graze * 1.25 + pump - move * 0.12 + Math.sin(time * 0.6) * 0.03 * idle;
+      neck.rotation.y = Math.sin(time * 0.23) * 0.3 * idle * (1 - graze) + Math.sin(phase) * 0.05 * trot;
+      head.rotation.x = HEAD_REST + graze * 0.5 + nod + Math.sin(time * 0.41) * 0.06 * idle;
       head.rotation.z = Math.sin(time * 0.31) * 0.08 * idle;
       earT -= dt;
       if (earT < 0) earT = 1.5 + Math.random() * 4;
       const flick = earT < 0.25 ? Math.sin((earT / 0.25) * Math.PI) * 0.5 : 0;
       ears.forEach((e, i) => {
         const s = i ? 1 : -1;
-        e.rotation.x = -0.2 + (i ? flick : 0) + move * 0.35 + g * 0.3;
+        e.rotation.x =
+          -0.2 + (i ? flick : 0) + move * 0.35 + g * 0.3 + Math.sin(phase * 2 - 1.6 + i * 0.4) * 0.1 * move;
         e.rotation.z = -s * (1.05 - g * 0.25);
       });
       eyes.scale.y = blink(dt);
