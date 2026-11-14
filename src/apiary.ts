@@ -150,6 +150,8 @@ const CAVE_H = 1.7; // height of the opening
 const CAVE_BACK = 0.5; // the tunnel's far end (local z)
 /** Local z of a den spot: deep in the cave, and just outside the mouth. */
 export const DEN_INSIDE = 1.0;
+/** Bears outside keep this far from a den's centre (the mound plus a bear's width). */
+const DEN_AVOID = 3.9;
 export const DEN_MOUTH = 4.3;
 
 function profileR(y: number) {
@@ -682,6 +684,7 @@ export class Apiary {
         if (atMouth) b.inDen = wantInside;
         else [tx, tz] = [mx, mz];
       }
+      if (!b.inDen) [tx, tz] = this.aroundDens(b.x, b.z, tx, tz);
       const dx = wrap(tx - b.x); // the short way round
       const dz = wrap(tz - b.z);
       const d = Math.hypot(dx, dz);
@@ -706,6 +709,40 @@ export class Apiary {
     }
 
     this.updateBees(dt, time, playerPos);
+  }
+
+  /** If a den mound is in the way of a straight walk, steer around its side instead. */
+  private aroundDens(x: number, z: number, tx: number, tz: number): [number, number] {
+    const ttx = wrap(tx - x);
+    const ttz = wrap(tz - z);
+    const len2 = ttx * ttx + ttz * ttz;
+    if (len2 < 1e-6) return [tx, tz];
+    for (const d of this.dens) {
+      const cx = wrap(d.x - x); // den centre relative to the bear
+      const cz = wrap(d.z - z);
+      if (cx * cx + cz * cz > (Math.sqrt(len2) + DEN_AVOID) ** 2) continue; // too far to matter
+      if (cx * cx + cz * cz < DEN_AVOID * DEN_AVOID) {
+        // Up against the mound (e.g. just out of the mouth). Heading for this den's mouth is fine;
+        // otherwise step straight out from the mound first, then go round.
+        const [mx, mz] = denPoint(d, 0, DEN_MOUTH);
+        if (wdist(tx, tz, mx, mz) < 1) return [tx, tz];
+        const dist = Math.hypot(cx, cz) || 1e-3;
+        return [wrap(x + cx - (cx / dist) * (DEN_AVOID + 0.8)), wrap(z + cz - (cz / dist) * (DEN_AVOID + 0.8))];
+      }
+      const s = Math.min(1, Math.max(0, (cx * ttx + cz * ttz) / len2));
+      const px = s * ttx - cx;
+      const pz = s * ttz - cz;
+      if (px * px + pz * pz >= DEN_AVOID * DEN_AVOID) continue; // the path misses this den
+      // Walk round the mound the shorter way: aim a little further round the circle each step.
+      const aBear = Math.atan2(-cx, -cz);
+      const aGoal = Math.atan2(ttx - cx, ttz - cz);
+      let diff = aGoal - aBear;
+      diff = Math.atan2(Math.sin(diff), Math.cos(diff));
+      const a = aBear + Math.sign(diff || 1) * 0.6;
+      const r = DEN_AVOID + 0.6;
+      return [wrap(x + cx + Math.sin(a) * r), wrap(z + cz + Math.cos(a) * r)];
+    }
+    return [tx, tz];
   }
 
   private updateBees(dt: number, time: number, playerPos: THREE.Vector3) {
