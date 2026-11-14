@@ -139,7 +139,37 @@ function swaying(m: THREE.MeshLambertMaterial) {
  * A heart tree's crown: lumpy faceted clumps of foliage, shaded darker underneath, fringed
  * with leaves so the outline is leafy, and dotted with blossoms in the glade's colours.
  */
-function canopyParts(palette: number[], rng: () => number) {
+interface Clump {
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+}
+
+/** Where the crown's clumps of foliage sit: a big central one over the trunk, others around it. */
+function crownLayout(rng: () => number) {
+  const clumps: Clump[] = [];
+  for (let i = 0; i < 13; i++) {
+    const a = rng() * Math.PI * 2;
+    const d = i === 0 ? 0 : 1.2 + rng() * 2.2;
+    const r = i === 0 ? 3 : 1.5 + rng() * 1.3;
+    clumps.push({ x: Math.cos(a) * d, y: 8.2 + rng() * 3.2 + (i === 0 ? 1 : 0), z: Math.sin(a) * d, r });
+  }
+  return clumps;
+}
+
+/** A tapering bark cylinder from a to b. */
+function bough(a: THREE.Vector3, b: THREE.Vector3, r0: number, r1: number, segs: number, uvU: number) {
+  const len = a.distanceTo(b);
+  const geo = scaleUV(new THREE.CylinderGeometry(r1, r0, len, segs), uvU, Math.max(1, len / 1.8));
+  geo.translate(0, len / 2, 0);
+  geo.applyQuaternion(
+    new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize()),
+  );
+  return geo.translate(a.x, a.y, a.z);
+}
+
+function canopyParts(palette: number[], rng: () => number, clumps: Clump[]) {
   const parts: THREE.BufferGeometry[] = [];
   const leaf = leafGeo(0.5, 0.85, 0.3);
   const petal = leafGeo(0.2, 0.26, 0.15);
@@ -148,13 +178,6 @@ function canopyParts(palette: number[], rng: () => number) {
   const m = new THREE.Matrix4();
   const up = new THREE.Vector3(0, 1, 0);
   const n = new THREE.Vector3();
-  const clumps: { x: number; y: number; z: number; r: number }[] = [];
-  for (let i = 0; i < 13; i++) {
-    const a = rng() * Math.PI * 2;
-    const d = i === 0 ? 0 : 1.2 + rng() * 2.2;
-    const r = i === 0 ? 3 : 1.5 + rng() * 1.3;
-    clumps.push({ x: Math.cos(a) * d, y: 8.2 + rng() * 3.2 + (i === 0 ? 1 : 0), z: Math.sin(a) * d, r });
-  }
   for (const k of clumps) {
     const base = LEAF_GREENS[Math.floor(rng() * 3) + 1];
     const blob = new THREE.IcosahedronGeometry(k.r, 2).toNonIndexed();
@@ -275,19 +298,20 @@ export class HeartTrees {
     let geo = this.treeGeos.get(g.paletteId);
     if (geo) return geo;
     const rng = mulberry32(g.paletteId * 31 + 5);
-    // The trunk and branches are a separate, bark-textured mesh.
-    const wood: THREE.BufferGeometry[] = [
-      scaleUV(new THREE.CylinderGeometry(0.5, 1.1, 7, 10).translate(0, 3.5, 0), 3, 4),
-    ];
+    const clumps = crownLayout(rng);
+    // The trunk and branches are a separate, bark-textured mesh. The trunk runs up into the
+    // middle of the central clump and each branch ends inside an outer one, so no wood is left
+    // poking out bare beneath the leaves.
+    const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    const c0 = clumps[0];
+    const wood: THREE.BufferGeometry[] = [bough(v(0, 0, 0), v(c0.x, c0.y, c0.z), 1.1, 0.42, 10, 3)];
+    const outer = clumps.slice(1).sort((a, b) => b.r - a.r);
     for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + rng();
-      const br = scaleUV(new THREE.CylinderGeometry(0.15, 0.35, 3.5, 6), 1, 2);
-      br.rotateX(Math.sin(a) * 0.7);
-      br.rotateZ(-Math.cos(a) * 0.7);
-      br.translate(Math.cos(a) * 1.0, 6.5, Math.sin(a) * 1.0);
-      wood.push(br);
+      const k = outer[i];
+      const from = v(0, 5.6 + i * 0.4, 0);
+      wood.push(bough(from, v(k.x * 0.8, k.y, k.z * 0.8), 0.35, 0.14, 6, 1));
     }
-    const parts = canopyParts(g.palette, rng);
+    const parts = canopyParts(g.palette, rng, clumps);
     geo = { canopy: mergeGeometries(parts)!, trunk: mergeGeometries(wood)! };
     this.treeGeos.set(g.paletteId, geo);
     return geo;
