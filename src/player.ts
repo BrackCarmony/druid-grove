@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Colliders } from './colliders';
 import type { MountDef, MountId, ToolId } from './economy';
 import { animateMount, buildMount, MountModel } from './mounts';
+import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 import { World, wrap } from './world';
 
 // The nymph: movement, mouse-look, riding, and a single continuous zoom that runs
@@ -26,7 +27,8 @@ export class Player {
   mount: MountDef | null = null;
   /** Called with the body circle each step before collisions, so a mount can break things in its way. */
   trample: ((x: number, z: number, r: number) => void) | null = null;
-  private nymph: THREE.Group;
+  private nymph: NymphRig;
+  private tool: ToolId = 'tweezers';
   private mountHolder = new THREE.Group();
   private mountModels = new Map<MountId, MountModel>();
   private toolModels: Record<ToolId, THREE.Object3D>;
@@ -41,7 +43,7 @@ export class Player {
     this.pos.y = world.heightAt(this.pos.x, this.pos.z);
     this.model = new THREE.Group();
     this.nymph = buildNymph();
-    this.model.add(this.nymph, this.mountHolder);
+    this.model.add(this.nymph.root, this.mountHolder);
     this.mountHolder.rotation.y = Math.PI; // mount models face +z
     const vm = buildViewmodels();
     this.viewmodel = vm.group;
@@ -73,6 +75,8 @@ export class Player {
 
   setTool(id: ToolId) {
     for (const [k, m] of Object.entries(this.toolModels)) m.visible = k === id;
+    setNymphTool(this.nymph, id);
+    this.tool = id;
   }
 
   ride(def: MountDef | null) {
@@ -86,9 +90,9 @@ export class Player {
         this.mountHolder.add(m.root);
       }
       m.root.visible = true;
-      this.nymph.position.y = m.seatY;
+      this.nymph.root.position.y = m.seatY;
     } else {
-      this.nymph.position.y = 0;
+      this.nymph.root.position.y = 0;
     }
   }
 
@@ -176,7 +180,7 @@ export class Player {
 
     // --- models ---
     this.model.visible = !this.firstPerson || !!mount;
-    this.nymph.visible = !this.firstPerson;
+    this.nymph.root.visible = !this.firstPerson;
     this.model.position.copy(this.pos);
     if (moving > 0.3) {
       const targetYaw = Math.atan2(-this.vel.x, -this.vel.z);
@@ -187,12 +191,24 @@ export class Player {
     if (mount) {
       const m = this.mountModels.get(mount.id)!;
       animateMount(m, this.walkPhase, moving, time);
-      this.nymph.children[0].position.y = Math.abs(Math.sin(this.walkPhase * 2)) * 0.05;
-      // In first person on a mount, only show the head/antlers ahead of you.
       m.root.visible = true;
-    } else {
-      const hop = Math.abs(Math.sin(this.walkPhase * 2)) * 0.08 * Math.min(1, moving / 4);
-      this.nymph.children[0].position.y = hop + Math.sin(time * 2) * 0.02;
+    }
+    if (this.nymph.root.visible) {
+      animateNymph(
+        this.nymph,
+        {
+          speed: moving,
+          running,
+          onGround: this.onGround,
+          vy: this.vel.y,
+          riding: mount ? mount.id : null,
+          mountPhase: this.walkPhase,
+          work: this.workAnim,
+          tool: this.tool,
+        },
+        dt,
+        time,
+      );
     }
 
     // --- first-person tool ---
@@ -206,52 +222,6 @@ export class Player {
 
 function lambert(color: number, emissive = 0x000000) {
   return new THREE.MeshLambertMaterial({ color, emissive });
-}
-
-function buildNymph(): THREE.Group {
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-
-  const skin = lambert(0xb9e0a5, 0x1a2a10);
-  const dress = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.9, 7), lambert(0x3f8a4a));
-  dress.position.y = 0.45;
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 0.4, 7), lambert(0x4fa05a));
-  torso.position.y = 1.05;
-  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.19, 1), skin);
-  head.position.y = 1.42;
-  body.add(dress, torso, head);
-
-  // Leafy hair crown
-  const leafMat = lambert(0x7cc451);
-  for (let i = 0; i < 9; i++) {
-    const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.1, 5, 3), leafMat);
-    leaf.scale.set(0.6, 0.25, 1.4);
-    const a = (i / 9) * Math.PI * 2;
-    leaf.position.set(Math.cos(a) * 0.17, 1.52 + (i % 2) * 0.05, Math.sin(a) * 0.17);
-    leaf.lookAt(leaf.position.x * 3, 2.2, leaf.position.z * 3);
-    body.add(leaf);
-  }
-  const bloom = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07, 0), lambert(0xff9ec4, 0x552233));
-  bloom.position.set(0.14, 1.58, 0.08);
-  body.add(bloom);
-
-  // Arms
-  for (const side of [-1, 1]) {
-    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.035, 0.45, 5), skin);
-    arm.position.set(side * 0.2, 1.0, 0);
-    arm.rotation.z = side * 0.25;
-    body.add(arm);
-  }
-  // Soft glow at the nymph's feet so she reads from far away.
-  const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.6, 20),
-    new THREE.MeshBasicMaterial({ color: 0xc6ff9e, transparent: true, opacity: 0.35, depthWrite: false }),
-  );
-  glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.03;
-  root.add(glow);
-  return root;
 }
 
 function buildViewmodels() {

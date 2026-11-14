@@ -89,6 +89,8 @@ function makeDot() {
 
 const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
 
+// "Breaking rock" from OpenGameArt (CC0).
+const ROCK_BREAK = `${import.meta.env.BASE_URL}sfx/rock-break.mp3`;
 const SFX_LEVEL = 0.22; // chimes at 100% effects volume
 const MUSIC_LEVEL = 0.55; // the track at 100% music volume
 const SONG_GAP = 4; // seconds of quiet between songs
@@ -108,7 +110,8 @@ export class Chimes {
   private musicGain: GainNode | null = null;
   private songs: Song[] = [];
   private songIndex = 0;
-  private buffers = new Map<string, Promise<AudioBuffer>>();
+  private buffers = new Map<string, Promise<AudioBuffer>>(); // music (pruned as songs change)
+  private samples = new Map<string, Promise<AudioBuffer>>(); // sound effects (kept)
   private sfxVol = 1;
   private musicVol = 0.5;
   private lastBloom = 0;
@@ -133,6 +136,37 @@ export class Chimes {
 
   resume() {
     this.ensure().resume();
+    void this.sample(ROCK_BREAK).catch(() => {}); // tiny; decode it before the first smash
+  }
+
+  private sample(url: string) {
+    let p = this.samples.get(url);
+    if (!p) {
+      const ctx = this.ensure();
+      p = fetch(url)
+        .then((r) => r.arrayBuffer())
+        .then((d) => ctx.decodeAudioData(d));
+      this.samples.set(url, p);
+      p.catch(() => this.samples.delete(url));
+    }
+    return p;
+  }
+
+  /** Play a recorded effect through the effects volume, with a little pitch variation. */
+  private play(url: string, vol: number, spread = 0.1) {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    this.sample(url)
+      .then((buf) => {
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.playbackRate.value = 1 + (Math.random() * 2 - 1) * spread;
+        const g = ctx.createGain();
+        g.gain.value = vol;
+        src.connect(g).connect(this.master!);
+        src.start();
+      })
+      .catch(() => {});
   }
 
   setVolumes(sfx: number, music: number) {
@@ -250,10 +284,9 @@ export class Chimes {
     [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => setTimeout(() => this.note(s, 1.2, 0.2), i * 110));
   }
 
-  /** A boulder shattering under hooves: low, gravelly thud. */
+  /** A boulder shattering under hooves. */
   crunch() {
-    this.note(-31 + Math.random() * 3, 0.18, 0.16, 'square');
-    this.note(-19 + Math.random() * 4, 0.09, 0.07, 'sawtooth');
+    this.play(ROCK_BREAK, 0.9);
   }
 
   deny() {
