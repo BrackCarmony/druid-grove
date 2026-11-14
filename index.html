@@ -2,7 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1a1424" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Druid Grove" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-180.png" />
     <title>Druid Grove</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link
@@ -13,6 +24,8 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <!-- touch controls (phones and tablets); filled in by touch.ts -->
+    <div id="touch" class="hidden"></div>
 
     <div id="hud">
       <div id="pollen-box">
@@ -44,7 +57,10 @@
       <div id="toast"></div>
       <div id="hotbar"></div>
       <div id="build" class="hidden">
-        <div class="build-head">Build at the cursor <span class="dim">· B / Esc to close</span></div>
+        <div class="build-head">
+          Build at the cursor <span class="dim kbd-only">· B / Esc to close</span>
+          <button class="close touch-only" id="build-close" aria-label="Close">✕</button>
+        </div>
         <div id="build-list"></div>
       </div>
       <div id="flash"></div>
@@ -62,6 +78,7 @@
           <div>
             <span class="ico">✿</span> <span id="shop-pollen">0</span> &nbsp; <i class="i-honey"></i>
             <span id="shop-honey">0</span>
+            <button class="close" data-close aria-label="Close">✕</button>
           </div>
         </div>
         <div class="shop-tabs" id="shop-tabs"></div>
@@ -78,21 +95,27 @@
           <div id="shop-seeds" class="shop-grid"></div>
         </section>
         <section class="shop-page" data-page="squirrels" data-title="Squirrels">
-          <p class="small dim">Build caches out in the world with <b>B</b>.</p>
+          <p class="small dim">
+            Build caches out in the world with <b class="kbd-only">B</b><b class="touch-only">Build</b>.
+          </p>
           <div id="shop-squirrels" class="shop-grid"></div>
         </section>
         <section class="shop-page" data-page="soil" data-title="Soil">
           <div id="shop-soil" class="shop-grid"></div>
         </section>
         <section class="shop-page" data-page="hives" data-title="Hives &amp; Bears">
-          <p class="small dim">Build beehives with <b>H</b> (needs the Rake).</p>
+          <p class="small dim">
+            Build beehives with <b class="kbd-only">H</b><b class="touch-only">Build</b> (needs the Rake).
+          </p>
           <div id="shop-hives" class="shop-grid"></div>
         </section>
         <section class="shop-page" data-page="fairies" data-title="Fairies">
-          <p class="small dim">Paid in honey. Build fairy rings with <b>R</b>.</p>
+          <p class="small dim">
+            Paid in honey. Build fairy rings with <b class="kbd-only">R</b><b class="touch-only">Build</b>.
+          </p>
           <div id="shop-fairies" class="shop-grid"></div>
         </section>
-        <div class="shop-foot">
+        <div class="shop-foot kbd-only">
           <span>Save &amp; return to the main menu from the <b>Esc</b> menu</span>
           <span>Press <b>E</b> or <b>Esc</b> to close</span>
         </div>
@@ -103,10 +126,11 @@
       <div class="shop-inner">
         <div class="shop-head">
           <h2>Waystones</h2>
+          <button class="close" data-close aria-label="Close">✕</button>
         </div>
-        <p class="small dim">Step through to any waystone on the planet. Build more from the B menu.</p>
+        <p class="small dim">Step through to any waystone on the planet. Build more from the Build menu.</p>
         <div id="travel-list"></div>
-        <div class="shop-foot">
+        <div class="shop-foot kbd-only">
           <span></span>
           <span>Press <b>E</b> or <b>Esc</b> to close</span>
         </div>
@@ -117,14 +141,17 @@
       <div class="shop-inner">
         <div class="shop-head">
           <h2>Fairy Rings</h2>
-          <div class="small dim" id="rings-sub"></div>
+          <div>
+            <span class="small dim" id="rings-sub"></span>
+            <button class="close" data-close aria-label="Close">✕</button>
+          </div>
         </div>
         <p class="small dim">
           Removing a ring refunds its honey, so move rings out of finished ground and rebuild them where there's work.
         </p>
         <button class="remove hidden" id="rings-clear"></button>
         <div id="rings-list"></div>
-        <div class="shop-foot">
+        <div class="shop-foot kbd-only">
           <span></span>
           <span>Press <b>G</b> or <b>Esc</b> to close</span>
         </div>
@@ -140,7 +167,7 @@
             <button id="pause-settings" class="link">Settings</button>
             <button id="pause-home" class="link">Save &amp; return to main menu</button>
           </div>
-          <p class="small dim">Press <b>Esc</b> to resume</p>
+          <p class="small dim kbd-only">Press <b>Esc</b> to resume</p>
         </div>
         <!-- the Settings panel is moved in here while it's open from this menu -->
       </div>
@@ -161,7 +188,10 @@
             <button class="link" id="open-settings">Settings</button>
             <button class="link" id="open-credits">Credits</button>
           </div>
-          <p class="small">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+          <p class="small kbd-only">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+          <p class="small touch-only">
+            Pick a world to play. Left thumb walks (push far to run), drag to look around, pinch to zoom. Play sideways.
+          </p>
         </div>
 
         <div id="home-look" class="home-panel hidden">
@@ -203,7 +233,7 @@
           </div>
           <p class="small">
             Lower the render distance if the game stutters: it draws less of the planet, flowers and trees far away.
-            <b>M</b> mutes all sound in game.
+            <span class="kbd-only"><b>M</b> mutes all sound in game.</span>
           </p>
           <button class="back">Back</button>
         </div>
@@ -263,6 +293,14 @@
           </dl>
           <button class="back">Back</button>
         </div>
+      </div>
+    </div>
+
+    <div id="portrait">
+      <div>
+        <div class="rotate-ico">⟳</div>
+        Turn your device sideways to play.
+        <button id="portrait-ok" class="link">Play upright anyway</button>
       </div>
     </div>
 

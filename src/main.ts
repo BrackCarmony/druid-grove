@@ -26,6 +26,7 @@ import { Chimes, Particles, Song } from './fx';
 import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
 import { Player } from './player';
+import { TouchControls, wantsTouch } from './touch';
 import { DeadScenery, HeartTrees } from './props';
 import { createSky, restoreMoon } from './sky';
 import { Ending } from './ending';
@@ -39,10 +40,14 @@ const HONEY = '<i class="i-honey"></i>';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+/** Playing with touch controls (phones, tablets). Words for keys say what to tap instead. */
+const TOUCH = wantsTouch();
+const say = (keys: string, touch: string) => (TOUCH ? touch : keys);
+
 // ---------- scene ----------
 const canvas = $<HTMLCanvasElement>('game');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 
 const scene = new THREE.Scene();
@@ -228,6 +233,10 @@ function renderHotbar() {
     d.className = 'slot' + (active ? ' active' : '') + (owned ? '' : ' locked');
     const name = s.kind === 'mount' ? s.def.name.split(' ').pop() : s.def.name;
     d.innerHTML = `<div class="k">${i + 1}</div><div>${name}</div>${owned ? '' : `<div class="k">✿ ${fmt(s.def.cost)}</div>`}`;
+    d.onpointerdown = (e) => {
+      e.preventDefault();
+      if (started && !menuOpen) selectSlot(i);
+    };
     bar.appendChild(d);
   });
 }
@@ -251,7 +260,7 @@ function selectSlot(i: number) {
       player.ride(s.def);
       const [x, z] = [player.pos.x, player.pos.z];
       particles.burst(x, world.heightAt(x, z) + 0.5, z, 0xd8ffb0, 60, 2, 2);
-      if (econ.autoPlant) toast(`Riding the ${s.def.name}. It plants as it walks (F to toggle).`);
+      if (econ.autoPlant) toast(`Riding the ${s.def.name}. It plants as it walks (${say('F', 'Auto')} to toggle).`);
     }
   }
   renderHotbar();
@@ -365,7 +374,8 @@ function renderShop() {
         label,
         () => !owned && !needs && econ.pollen >= m.cost,
         () => {
-          if (econ.buyMount(m)) bought(`${m.name} joined you! Press ${TOOLS.length + i + 1} to ride.`);
+          if (econ.buyMount(m))
+            bought(`${m.name} joined you! ${say(`Press ${TOOLS.length + i + 1}`, 'Tap it in the bar')} to ride.`);
         },
       ),
     );
@@ -380,7 +390,7 @@ function renderShop() {
       card(
         `Hire a Bear <span class="desc">${econ.bears} working</span>`,
         `Bears carry honey from your hives back to their den. Each carries ${econ.bearCarry}. New bears move into the den with the most hives per bear.`,
-        needs ? 'Build a Beehive first (H)' : `✿ ${fmt(cost)}`,
+        needs ? say('Build a Beehive first (H)', 'Build a Beehive first') : `✿ ${fmt(cost)}`,
         () => !needs && econ.pollen >= cost,
         () => {
           if (econ.pollen < econ.bearCost) return;
@@ -521,7 +531,7 @@ function buildHive() {
 }
 
 function buildRing() {
-  if (!econ.has('hive')) return toast('Fairy rings cost honey. Build a Beehive (H) first.');
+  if (!econ.has('hive')) return toast(`Fairy rings cost honey. Build a Beehive${say(' (H)', '')} first.`);
   const p = placement();
   if (!p || !afford(econ.ringCost, econ.honey, `A fairy ring ${HONEY}`)) return;
   econ.honey -= econ.ringCost;
@@ -573,7 +583,12 @@ function buildStone() {
   econ.pollen -= econ.stoneCost;
   econ.stonesBuilt++;
   const st = waystones.build(p[0], p[1]);
-  built(p[0], p[1], 0x8fe8ff, `${st.label} raised! Stand in any waystone and press E to travel.`);
+  built(
+    p[0],
+    p[1],
+    0x8fe8ff,
+    `${st.label} raised! Stand in any waystone and ${say('press E', 'tap Travel')} to travel.`,
+  );
 }
 
 // ---------- build menu (B) ----------
@@ -623,10 +638,21 @@ function showBuild(open: boolean) {
   if (open) renderBuild();
 }
 
+// Tap a build option (it's redrawn constantly, so listen on the list).
+$('build-list').addEventListener('pointerdown', (e) => {
+  const row = (e.target as HTMLElement).closest<HTMLElement>('.build-opt');
+  const opt = row && BUILDS[Number(row.dataset.i)];
+  if (!opt) return;
+  e.preventDefault();
+  showBuild(false);
+  opt.build();
+});
+$('build-close').onclick = () => showBuild(false);
+
 function renderBuild() {
   $('build-list').innerHTML = BUILDS.map(
     (b, i) =>
-      `<div class="build-opt${b.ok() ? '' : ' no'}"><span class="k">${i + 1}</span>${b.name}<span class="cost">${b.cost()}</span></div>`,
+      `<div class="build-opt${b.ok() ? '' : ' no'}" data-i="${i}"><span class="k">${i + 1}</span>${b.name}<span class="cost">${b.cost()}</span></div>`,
   ).join('');
 }
 
@@ -738,6 +764,7 @@ let mouseDown = false;
 let skipSave = false;
 
 function lock() {
+  if (TOUCH) return; // touch play never captures a mouse
   canvas.requestPointerLock?.();
 }
 
@@ -756,6 +783,7 @@ function openMenu(kind: MenuKind | null) {
   if (kind === 'shop') renderShop();
   if (kind === 'rings') renderRings();
   if (kind === 'travel') renderTravel(waystones.nearby(player.pos)!);
+  if (kind) touch?.release();
   if (kind) document.exitPointerLock?.();
   else lock();
 }
@@ -821,7 +849,7 @@ function renderRings() {
     ? `${fairies.rings.length} ring${fairies.rings.length === 1 ? '' : 's'} · each tends ${econ.ringRadius}m around itself${wf}`
     : wf.slice(3);
   if (!fairies.rings.length) {
-    list.innerHTML = '<p class="dim">No fairy rings yet. Press <b>R</b> to build one (costs honey).</p>';
+    list.innerHTML = `<p class="dim">No fairy rings yet. ${say('Press <b>R</b>', 'Use <b>Build</b>')} to build one (costs honey).</p>`;
     return;
   }
   // Finished rings first: those are the ones worth moving.
@@ -1159,7 +1187,15 @@ function startGame(i: number) {
   $('start').classList.add('hidden');
   chimes.resume();
   lock();
-  if (!loaded) toast('Hold the mouse to press a seed into the dirt.');
+  if (TOUCH) {
+    document.body.classList.add('playing');
+    // Android can go full screen and stay sideways (iPhones keep the browser bars).
+    document.documentElement
+      .requestFullscreen?.({ navigationUI: 'hide' })
+      .then(() => (screen.orientation as ScreenOrientation & { lock?(o: string): Promise<void> }).lock?.('landscape'))
+      .catch(() => {});
+  }
+  if (!loaded) toast(say('Hold the mouse', 'Hold Plant') + ' to press a seed into the dirt.');
 }
 canvas.addEventListener('click', () => {
   if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
@@ -1199,15 +1235,7 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     return perf.toggleOverlay();
   }
-  if (e.code === 'KeyE') {
-    // E interacts with whatever she's standing at: the obelisk (shop) or a waystone (travel).
-    if (menuKind === 'shop' || menuKind === 'travel') return openMenu(null);
-    if (menuOpen) return;
-    if (obelisk.nearby(player.pos)) return openMenu('shop');
-    if (waystones.nearby(player.pos)) return openMenu('travel');
-    chimes.deny();
-    return toast('Nothing to use here. Press E at the Verdant Obelisk to trade, or in a waystone to travel.');
-  }
+  if (e.code === 'KeyE') return useHere();
   if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
   if (menuOpen) return;
   if (buildOpen) {
@@ -1226,15 +1254,53 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyB') showBuild(true);
   if (e.code === 'KeyH') buildHive();
   if (e.code === 'KeyR') buildRing();
-  if (e.code === 'KeyF') {
-    econ.autoPlant = !econ.autoPlant;
-    toast(econ.autoPlant ? 'Mount auto-planting on' : 'Mount auto-planting off');
-  }
+  if (e.code === 'KeyF') toggleAutoPlant();
   if (e.code === 'KeyM') {
     chimes.setMuted(!chimes.muted);
     toast(chimes.muted ? 'Sound off' : 'Sound on');
   }
 });
+/** E (or the touch Use button): the obelisk opens the shop, a waystone the travel list. */
+function useHere() {
+  if (menuKind === 'shop' || menuKind === 'travel') return openMenu(null);
+  if (menuOpen) return;
+  if (obelisk.nearby(player.pos)) return openMenu('shop');
+  if (waystones.nearby(player.pos)) return openMenu('travel');
+  chimes.deny();
+  toast('Nothing to use here. Press E at the Verdant Obelisk to trade, or in a waystone to travel.');
+}
+
+function toggleAutoPlant() {
+  econ.autoPlant = !econ.autoPlant;
+  toast(econ.autoPlant ? 'Mount auto-planting on' : 'Mount auto-planting off');
+}
+
+for (const b of document.querySelectorAll<HTMLButtonElement>('[data-close]')) b.onclick = () => openMenu(null);
+
+const touch = TOUCH
+  ? new TouchControls({
+      player,
+      playing: () => started && !menuOpen && !ending.active,
+      setPlanting: (on) => (mouseDown = on && started && !menuOpen && !ending.active),
+      useLabel: () => (obelisk.nearby(player.pos) ? 'Trade' : waystones.nearby(player.pos) ? 'Travel' : null),
+      use: useHere,
+      build: () => showBuild(!buildOpen),
+      rings: () => openMenu('rings'),
+      menu: () => openMenu('pause'),
+      riding: () => (econ.riding ? { on: econ.autoPlant } : null),
+      toggleAutoPlant,
+      skipEnding: () => {
+        if (!ending.active) return false;
+        ending.skip();
+        return true;
+      },
+    })
+  : null;
+if (TOUCH) {
+  document.querySelector('#ending .skip')!.textContent = 'Double-tap to skip';
+  $('portrait-ok').onclick = () => document.body.classList.add('portrait-ok');
+}
+
 document.addEventListener('pointerlockchange', () => {
   if (document.pointerLockElement === canvas) return;
   mouseDown = false;
@@ -1331,11 +1397,11 @@ function frame() {
     const ring = fairies.nearby(player.pos);
     const stone = waystones.nearby(player.pos);
     if (obelisk.nearby(player.pos)) {
-      stationText = 'The Verdant Obelisk · press E to trade';
+      stationText = `The Verdant Obelisk · ${say('press E', 'tap Trade')} to trade`;
     } else if (stone) {
       // Waystones are seed hubs too.
       econ.refill(1500 * dt);
-      stationText = `${stone.label} · refilling seeds · press E to travel`;
+      stationText = `${stone.label} · refilling seeds · ${say('press E', 'tap Travel')} to travel`;
     } else if (ap?.kind === 'den') {
       const n = apiary.bearsAt(ap.den);
       stationText = `${ap.den.label} · ${n} bear${n === 1 ? '' : 's'} here · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
@@ -1428,6 +1494,7 @@ function frame() {
     $('crosshair').style.display = !mount && (player.firstPerson || player.zoom < 12) ? 'block' : 'none';
     if (menuKind === 'rings') updateRings();
     if (buildOpen) renderBuild();
+    touch?.update();
     renderCompass();
     if (menuOpen) {
       $('shop-pollen').textContent = fmt(econ.pollen);

@@ -14,7 +14,7 @@ const BODY_RADIUS = 0.3;
 export const ZOOM_MIN = 0;
 export const ZOOM_MAX = 320;
 /** Zooms a single scroll gesture catches on: just over the shoulder, and the high overview. */
-const ZOOM_STOPS = [4, 60];
+export const ZOOM_STOPS = [4, 60];
 /** Milliseconds without a wheel event that end a zoom gesture. */
 const GESTURE_GAP = 220;
 
@@ -29,6 +29,9 @@ export class Player {
   private heldDir = 0;
   onGround = true;
   keys = new Set<string>();
+  /** Touch stick: x right, y forward, length 0..1. */
+  stick = new THREE.Vector2();
+  stickRun = false;
   model: THREE.Group;
   viewmodel: THREE.Group;
   mount: MountDef | null = null;
@@ -153,11 +156,17 @@ export class Player {
     if (this.keys.has('KeyS')) wish.sub(fwd);
     if (this.keys.has('KeyD')) wish.add(right);
     if (this.keys.has('KeyA')) wish.sub(right);
-    const running = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    // The touch stick walks slower the less it's pushed (unless keys are moving her too).
+    let analog = 1;
+    if (this.stick.lengthSq() > 0.0004 && wish.lengthSq() === 0) {
+      wish.addScaledVector(fwd, this.stick.y).addScaledVector(right, this.stick.x);
+      analog = this.stickRun ? 1 : Math.max(0.3, Math.min(1, this.stick.length() / 0.85));
+    }
+    const running = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || this.stickRun;
     let speed = mount ? (running ? mount.runSpeed : mount.speed) : running ? 7.5 : 4.2;
     // Move faster when zoomed out so the overview isn't a slog.
     speed *= 1 + Math.min(this.zoom, 60) / 30;
-    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed);
+    if (wish.lengthSq() > 0) wish.normalize().multiplyScalar(speed * analog);
     const accel = this.onGround ? (mount ? 6 : 14) : 4;
     this.vel.x += (wish.x - this.vel.x) * Math.min(1, accel * dt);
     this.vel.z += (wish.z - this.vel.z) * Math.min(1, accel * dt);
