@@ -27,6 +27,7 @@ export const lightUniforms = {
 export const cursorUniforms = {
   uCursor: { value: new THREE.Vector3(0, 0, 0) }, // x, z, radius
   uCursorState: { value: 0 }, // 0 hidden, 1 ok, 2 blocked
+  uCursorGrid: { value: 1 }, // 1 draws the tile edges, 0 just the soft highlight (a setting)
 };
 
 // GLSL helpers for the sky (not periodic; the sky doesn't wrap).
@@ -175,6 +176,7 @@ export function createTerrain(world: World): Terrain {
       uniform vec3 uFogColor, uKeyDir, uKeyCol, uAmbLow, uAmbHigh;
       uniform vec3 uCursor;
       uniform float uCursorState;
+      uniform float uCursorGrid;
       varying vec3 vWorld;
       varying vec3 vNormal;
       varying float vDist;
@@ -244,7 +246,7 @@ export function createTerrain(world: World): Terrain {
           float inside = all(equal(cell, floor(uCursor.xy))) ? 1.0 : step(length(cell + 0.5 - uCursor.xy), uCursor.z);
           vec2 f = fract(pc);
           float e = min(min(f.x, f.y), min(1.0 - f.x, 1.0 - f.y));
-          float edge = 1.0 - smoothstep(0.03, 0.07, e);
+          float edge = (1.0 - smoothstep(0.03, 0.07, e)) * uCursorGrid;
           vec3 hc = uCursorState > 1.5 ? vec3(1.0, 0.45, 0.4) : vec3(1.0, 0.97, 0.75);
           lit = mix(lit, hc, inside * (0.12 + edge * 0.55));
         }

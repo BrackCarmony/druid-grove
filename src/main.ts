@@ -684,7 +684,8 @@ function renderCompass() {
 // ---------- input ----------
 /** Any full-screen menu is open (the game pauses input while one is). */
 let menuOpen = false;
-type MenuKind = 'shop' | 'rings' | 'travel';
+type MenuKind = 'shop' | 'rings' | 'travel' | 'pause';
+let pausedAt = 0; // when the Esc menu last opened (see the Escape handling below)
 let menuKind: MenuKind | null = null;
 let started = false;
 let mouseDown = false;
@@ -701,6 +702,11 @@ function openMenu(kind: MenuKind | null) {
   $('shop').classList.toggle('hidden', kind !== 'shop');
   $('rings').classList.toggle('hidden', kind !== 'rings');
   $('travel').classList.toggle('hidden', kind !== 'travel');
+  $('pause').classList.toggle('hidden', kind !== 'pause');
+  if (kind === 'pause') {
+    pausedAt = performance.now();
+    showPauseMain();
+  }
   if (kind === 'shop') renderShop();
   if (kind === 'rings') renderRings();
   if (kind === 'travel') renderTravel(waystones.nearby(player.pos)!);
@@ -1047,7 +1053,23 @@ function renderLookOpts() {
   choices('On the back', 'back', BACK_NAMES);
 }
 $('open-credits').onclick = () => showHome('credits');
-for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back')) b.onclick = () => showHome('main');
+for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back'))
+  b.onclick = () => (menuKind === 'pause' ? showPauseMain() : showHome('main'));
+
+// ---------- in-game menu (Esc) ----------
+function showPauseMain() {
+  $('home-settings').classList.add('hidden');
+  $('pause-main').classList.remove('hidden');
+}
+$('pause-resume').onclick = () => openMenu(null);
+$('pause-settings').onclick = () => {
+  // The home screen's Settings panel, borrowed into this menu.
+  const panel = $('home-settings');
+  $('pause-inner').appendChild(panel);
+  panel.classList.remove('hidden');
+  $('pause-main').classList.add('hidden');
+};
+$('pause-home').onclick = () => goHome();
 
 function bindSlider(id: 'music' | 'sfx') {
   const input = $<HTMLInputElement>(`set-${id}`);
@@ -1074,6 +1096,18 @@ for (const b of viewButtons) {
   };
 }
 renderView();
+const gridButtons = [...$('set-grid').querySelectorAll<HTMLButtonElement>('button')];
+function renderGrid() {
+  for (const b of gridButtons) b.classList.toggle('on', (b.dataset.v === 'on') === settings.grid);
+}
+for (const b of gridButtons) {
+  b.onclick = () => {
+    updateSettings({ grid: b.dataset.v === 'on' });
+    renderGrid();
+  };
+}
+renderGrid();
+onSettings((s) => (cursorUniforms.uCursorGrid.value = s.grid ? 1 : 0));
 
 function playEnding() {
   if (menuOpen) openMenu(null);
@@ -1095,11 +1129,12 @@ function startGame(i: number) {
 canvas.addEventListener('click', () => {
   if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
 });
-$('home').onclick = () => {
+function goHome() {
   saveNow();
   skipSave = true;
   location.reload(); // back to the home screen (it shows on every load)
-};
+}
+$('home').onclick = () => goHome();
 
 addEventListener('mousemove', (e) => {
   if (document.pointerLockElement === canvas && !ending.active) player.look(e.movementX, e.movementY);
@@ -1119,7 +1154,12 @@ addEventListener('keydown', (e) => {
     if (e.code === 'Escape') ending.skip();
     return;
   }
-  if (e.code === 'Escape' && menuOpen) return openMenu(null);
+  if (e.code === 'Escape' && menuOpen) {
+    // The same Esc that released the mouse can arrive here too; don't let it close the menu it opened.
+    if (menuKind === 'pause' && performance.now() - pausedAt < 400) return;
+    return openMenu(null);
+  }
+  if (e.code === 'Escape' && !buildOpen) return openMenu('pause');
   if (e.code === 'F3') {
     e.preventDefault();
     return perf.toggleOverlay();
@@ -1157,7 +1197,13 @@ addEventListener('keydown', (e) => {
   }
 });
 document.addEventListener('pointerlockchange', () => {
-  if (document.pointerLockElement !== canvas) mouseDown = false;
+  if (document.pointerLockElement === canvas) return;
+  mouseDown = false;
+  if (!started) return;
+  // Esc while the mouse is captured: the browser releases it (and keeps the key press), so
+  // this is where Esc opens the menu, or skips the ending.
+  if (ending.active) ending.skip();
+  else if (!menuOpen) openMenu('pause');
 });
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);

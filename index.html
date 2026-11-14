@@ -125,6 +125,21 @@
       </div>
     </div>
 
+    <div id="pause" class="hidden">
+      <div class="start-inner pause-inner" id="pause-inner">
+        <div id="pause-main">
+          <h2>Menu</h2>
+          <div class="pause-buttons">
+            <button id="pause-resume">Resume</button>
+            <button id="pause-settings" class="link">Settings</button>
+            <button id="pause-home" class="link">Save &amp; return to main menu</button>
+          </div>
+          <p class="small dim">Press <b>Esc</b> to resume</p>
+        </div>
+        <!-- the Settings panel is moved in here while it's open from this menu -->
+      </div>
+    </div>
+
     <div id="start">
       <div class="start-inner">
         <h1>Druid Grove</h1>
@@ -171,6 +186,13 @@
               <button data-v="low">Low</button>
               <button data-v="medium">Medium</button>
               <button data-v="high">High</button>
+            </div>
+          </div>
+          <div class="setting">
+            <span>Tool grid lines</span>
+            <div class="seg" id="set-grid">
+              <button data-v="on">On</button>
+              <button data-v="off">Off</button>
             </div>
           </div>
           <p class="small">

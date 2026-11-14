@@ -231,6 +231,7 @@ body {
 #shop,
 #rings,
 #travel,
+#pause,
 #start {
   position: fixed;
   inset: 0;
@@ -865,4 +866,24 @@ body:not(.cinematic) #ending .skip {
   inset: 0;
   background: #fff;
   opacity: 0;
+}
+
+/* ---------- in-game menu (Esc) ---------- */
+.pause-inner {
+  width: min(440px, calc(100vw - 32px));
+  text-align: center;
+}
+.pause-inner h2 {
+  margin: 4px 0 16px;
+  font-weight: 500;
+}
+.pause-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.pause-buttons button {
+  width: 100%;
+  padding: 12px;
 }
