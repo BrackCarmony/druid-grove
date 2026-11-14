@@ -7,6 +7,7 @@ import { wdist, World } from './world';
 // There's one at home; the rest the player builds out across the planet.
 
 const RANGE = 3.5;
+const POST_BURY = 3; // metres of post below the base
 const SPACING = 30;
 
 const lam = (color: number, emissive = 0) => new THREE.MeshLambertMaterial({ color, emissive });
@@ -24,8 +25,9 @@ function stoneModel() {
   const rock = lam(0x8b8794);
   const moss = lam(0x6aa83f);
   for (const s of [-1, 1]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, 3.2, 0.7), rock);
-    post.position.set(s * 1.2, 1.6, 0);
+    // Posts run 3 m into the ground so uneven terrain never shows a gap under them.
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, 3.2 + POST_BURY, 0.7), rock);
+    post.position.set(s * 1.2, (3.2 - POST_BURY) / 2, 0);
     post.rotation.z = s * 0.04;
     g.add(post);
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.25, 0.75), moss);
@@ -66,16 +68,25 @@ function stoneModel() {
   // Seed sacks and a spill of seed by the posts: this is a place to restock.
   const seedMat = lam(0x9a6a3a);
   const sackMat = lam(0xc9a87a);
+  // Each is named 'ground' and snapped to the terrain where it stands once placed (see build()).
   for (const s of [-1, 1]) {
+    const bag = new THREE.Group();
+    bag.name = 'ground';
     const sack = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), sackMat);
     sack.scale.set(1, 1.15, 1);
-    sack.position.set(s * 2.1, 0.42, 0.55);
+    sack.position.y = 0.4;
     const tie = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.14, 0.18, 6), sackMat);
-    tie.position.set(s * 2.1, 0.95, 0.55);
-    g.add(sack, tie);
+    tie.position.y = 0.93;
+    bag.add(sack, tie);
+    bag.position.set(s * 2.1, 0, 0.55);
+    g.add(bag);
     for (let i = 0; i < 6; i++) {
-      const seed = new THREE.Mesh(new THREE.IcosahedronGeometry(0.1 + (i % 3) * 0.04, 0), seedMat);
-      seed.position.set(s * (1.7 + (i % 3) * 0.25), 0.08, 0.9 + Math.floor(i / 3) * 0.3);
+      const r = 0.1 + (i % 3) * 0.04;
+      const seed = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), seedMat);
+      seed.name = 'ground';
+      seed.userData.lift = r * 0.6; // half-buried in the soil
+      seed.position.set(s * (1.7 + (i % 3) * 0.25), 0, 0.9 + Math.floor(i / 3) * 0.3);
+      seed.rotation.set(i, i * 2, 0);
       g.add(seed);
     }
   }
@@ -99,7 +110,16 @@ export class Waystones {
 
   build(x: number, z: number, label?: string): Waystone {
     const obj = stoneModel();
-    obj.position.set(x, this.world.heightAt(x, z), z);
+    // Sit the arch at the lowest ground under it, so the portal never hangs above a dip;
+    // the posts go deep enough to meet higher ground too.
+    let base = Infinity;
+    for (const dx of [-1.2, -0.6, 0, 0.6, 1.2])
+      for (const dz of [-0.35, 0.35]) base = Math.min(base, this.world.heightAt(x + dx, z + dz));
+    obj.position.set(x, base, z);
+    for (const c of obj.children) {
+      if (c.name !== 'ground') continue;
+      c.position.y = this.world.heightAt(x + c.position.x, z + c.position.z) - base + (c.userData.lift ?? 0) - 0.03;
+    }
     this.group.add(obj);
     this.colliders.add(x - 1.2, z, 0.5);
     this.colliders.add(x + 1.2, z, 0.5);
