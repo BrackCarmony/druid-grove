@@ -76,9 +76,13 @@ export function createSky(): THREE.Group {
   // Shattered moon: a cratered body with a wedge of chunks drifting away.
   const rng = mulberry32(42);
   const moonGroup = new THREE.Group();
-  const moonMat = new THREE.MeshBasicMaterial({ color: 0xd9c9e6, fog: false });
-  const darkMat = new THREE.MeshBasicMaterial({ color: 0x9a86b0, fog: false });
-  const moon = new THREE.Mesh(new THREE.IcosahedronGeometry(60, 2), moonMat);
+  // Unlit (it shows by night as well as day), so it's shaded by hand: vertex colours darken
+  // toward one limb and pick out a few grey "seas". By day it fades to a pale, see-through
+  // daytime moon; only at night does it show at full strength.
+  const moonMat = new THREE.MeshBasicMaterial({ color: 0xc9bdd6, fog: false, transparent: true });
+  const darkMat = new THREE.MeshBasicMaterial({ color: 0x8a789e, fog: false, transparent: true });
+  const bodyMat = new THREE.MeshBasicMaterial({ color: 0xc9bdd6, fog: false, transparent: true, vertexColors: true });
+  const moon = new THREE.Mesh(new THREE.IcosahedronGeometry(60, 2), bodyMat);
   const posAttr = moon.geometry.attributes.position as THREE.BufferAttribute;
   const v = new THREE.Vector3();
   const whole = new Float32Array(posAttr.count * 3); // the moon as it was, for restoring it
@@ -95,6 +99,22 @@ export function createSky(): THREE.Group {
     posAttr.setXYZ(i, v.x, v.y, v.z);
   }
   moon.geometry.computeVertexNormals();
+  {
+    // Light from the viewer's upper left (local +z faces the planet), and dark seas.
+    const light = new THREE.Vector3(-0.45, 0.35, 1).normalize();
+    const cols = new Float32Array(posAttr.count * 3);
+    const n = new THREE.Vector3();
+    for (let i = 0; i < posAttr.count; i++) {
+      n.fromArray(whole, i * 3).normalize();
+      const lit = 0.42 + 0.58 * THREE.MathUtils.smoothstep(n.dot(light), -0.35, 0.75);
+      const sea =
+        Math.sin(n.x * 4.1 + 1.3) * Math.sin(n.y * 3.7 + 0.4) * Math.sin(n.z * 3.3 + 2.1) +
+        0.5 * Math.sin(n.x * 9.3 + n.y * 7.1 + 0.7);
+      const k = lit * (sea > 0.25 ? 0.72 : 1);
+      cols.set([k, k, k], i * 3);
+    }
+    moon.geometry.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+  }
   moonGroup.add(moon);
   const chunks: { mesh: THREE.Mesh; from: THREE.Vector3; to: THREE.Vector3; spin: THREE.Euler; delay: number }[] = [];
   for (let i = 0; i < 40; i++) {
@@ -175,8 +195,18 @@ export function createSky(): THREE.Group {
   ring.position.y = 120;
   group.add(ring);
 
-  const brokenCol = moonMat.color.clone();
-  const wholeCol = new THREE.Color(0xf4eefc);
+  const brokenCol = bodyMat.color.clone();
+  const wholeCol = new THREE.Color(0xdcd6e2); // mended: a touch brighter and greyer, not white
+  let mended = 0;
+  let flashNow = 0;
+  // Each frame: pale by day, full by night; the halo only shows in the dark.
+  moon.onBeforeRender = () => {
+    const sunY = sharedUniforms.uSunDir.value.y;
+    const day = THREE.MathUtils.smoothstep(sunY, -0.1, 0.25);
+    const o = 1 - 0.6 * day;
+    bodyMat.opacity = moonMat.opacity = darkMat.opacity = o;
+    halo.material.opacity = 0.16 * mended * (1 - day) + flashNow;
+  };
   const ease = (x: number) => x * x * (3 - 2 * x);
   moonState = {
     set(t: number, flash: number) {
@@ -193,9 +223,10 @@ export function createSky(): THREE.Group {
       for (let i = 0; i < posAttr.count * 3; i++) posAttr.array[i] = broken[i] + (whole[i] - broken[i]) * f;
       posAttr.needsUpdate = true;
       moon.geometry.computeVertexNormals();
-      moonMat.color.lerpColors(brokenCol, wholeCol, f);
-      halo.material.opacity = 0.55 * f + flash;
-      halo.scale.setScalar(240 + flash * 400);
+      bodyMat.color.lerpColors(brokenCol, wholeCol, f);
+      mended = f;
+      flashNow = flash;
+      halo.scale.setScalar(170 + flash * 450);
       (ring.material as THREE.PointsMaterial).opacity = 0.75 - 0.55 * f;
     },
   };
