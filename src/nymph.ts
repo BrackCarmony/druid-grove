@@ -566,8 +566,9 @@ function buildBack(lk: Look, spine: THREE.Group, M: Mats) {
       const t = i / 4 - 0.5;
       const l = mesh(leafGeo(0.2, 0.62 - Math.abs(t) * 0.16, 0.18), i % 2 ? M.leafLight : M.leafDark, cape);
       l.position.set(t * 0.2, 0.02, 0.01 - Math.abs(t) * 0.03);
-      // hang down and slightly back, clear of the skirt
-      l.rotation.set(Math.PI - 0.26, 0, -t * 0.35);
+      // Hang down and back, flared enough to clear the skirt at rest. The leaf is turned
+      // around its own length (y = π) so it curves away from her body rather than into it.
+      l.rotation.set(Math.PI - 0.36, Math.PI, t * 0.22);
     }
     const tie = mesh(new THREE.TorusGeometry(0.1, 0.012, 4, 14, Math.PI), M.twine, cape);
     tie.rotation.set(-Math.PI / 2, 0, 0);
