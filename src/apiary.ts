@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Colliders } from './colliders';
 import { Economy, HIVE } from './economy';
+import { applyMoss, grassTufts } from './moss';
 import { HALF, tileIndex, wdist, World, wrap } from './world';
 
 // The production branch: beehives make honey from the blooms around them, and
@@ -211,6 +212,51 @@ function moundGeometry(fromY: number, grow: number) {
   return g;
 }
 
+const CAP_FROM = 1.1;
+const CAP_GROW = 1.025;
+
+/** A point on the moss cap's surface at lathe angle a (0 faces the cave mouth) and height y. */
+function capPoint(a: number, y: number, out = new THREE.Vector3()) {
+  const r = profileR(y) * CAP_GROW;
+  return out.set(Math.sin(a) * r * DEN_X_SCALE, y + (CAP_GROW - 1) * 0.6, Math.cos(a) * r);
+}
+
+/** The moss cap, its lower edge ragged: it creeps further down the mound in some places. */
+function capGeometry() {
+  const g = moundGeometry(CAP_FROM, CAP_GROW);
+  const p = g.attributes.position;
+  const v = new THREE.Vector3();
+  const edgeY = CAP_FROM; // moundGeometry adds this last ring without the grow lift
+  for (let i = 0; i < p.count; i++) {
+    if (Math.abs(p.getY(i) - edgeY) > 0.01) continue;
+    const a = Math.atan2(p.getX(i) / DEN_X_SCALE, p.getZ(i));
+    // Whole multiples of the angle, so the edge meets itself at the lathe's seam.
+    const drop = 0.22 + 0.16 * Math.sin(a * 5 + 1) + 0.08 * Math.sin(a * 11 + 2);
+    capPoint(a, CAP_FROM - drop, v);
+    p.setXYZ(i, v.x, v.y, v.z);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Grass tufts scattered over the cap, keeping clear of the cave mouth. */
+function denTufts() {
+  const spots: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+  const e = 0.01;
+  for (let i = 0; spots.length < 40 && i < 300; i++) {
+    const a = i * 2.39996; // golden angle
+    const y = 1.35 + ((i * 0.7549 + 0.3) % 1) * 1.25; // a different step from the angle, or they line up
+    if (Math.cos(a) > 0.85 && y < 2.45) continue; // the stones over the mouth
+    const p = capPoint(a, y);
+    const ta = capPoint(a + e, y).sub(p);
+    const ty = capPoint(a, y + e).sub(p);
+    const n = ta.cross(ty).normalize();
+    if (n.y < 0) n.negate();
+    spots.push({ p, n });
+  }
+  return grassTufts(spots, 5, 1.3);
+}
+
 /** Half-tube for the tunnel: arch over local z from CAVE_BACK out to the mound's surface. */
 function tunnelGeometry(w: number, h: number) {
   const seg = 14;
@@ -236,7 +282,8 @@ function tunnelGeometry(w: number, h: number) {
 function denModel() {
   const g = new THREE.Group();
   g.add(new THREE.Mesh(moundGeometry(-4.5, 1), caveCutMaterial(0x6d5a3f)));
-  g.add(new THREE.Mesh(moundGeometry(1.1, 1.025), caveCutMaterial(0x6aa83f))); // mossy cap, hugging the mound
+  g.add(new THREE.Mesh(capGeometry(), applyMoss(caveCutMaterial(0xffffff), 7, 2))); // mossy cap, hugging the mound
+  g.add(denTufts());
 
   // The cave: black tunnel walls, back wall and floor.
   const dark = new THREE.MeshBasicMaterial({ color: 0x0b0806, side: THREE.DoubleSide });

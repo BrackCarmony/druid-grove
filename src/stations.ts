@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Colliders } from './colliders';
 import { Economy } from './economy';
+import { grassTufts, mossMaterial } from './moss';
 import { wdist, World, wrap } from './world';
 
 // Seed sources: seed hubs (the Seed Hollow at home plus every waystone, all
@@ -15,6 +16,45 @@ export interface SeedHub {
 }
 
 const HOLLOW_RANGE = 4.5;
+
+/** The hollow log's radius at x (it tapers from 0.85 at the open end, x -1.8, to 0.95). */
+const logR = (x: number) => 0.9 + (x / 1.8) * 0.05;
+
+/** A blanket of moss over the top of the hollow log, its edges ragged where it trails down. */
+function mossDrape() {
+  const len = 3.3;
+  const geo = new THREE.CylinderGeometry(1, 1, len, 14, 28, true, Math.PI / 2 - 1, 2);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i); // along the log
+    const z = p.getZ(i);
+    let a = Math.atan2(x, z) - Math.PI / 2; // -1..1 across the top
+    // Trail further down in some places than others; the ends taper in.
+    const edge = 0.2 * Math.sin(y * 3.1 + Math.sign(a) * 2) + 0.07 * Math.sin(y * 7.3 + 1);
+    const endIn = 1 - Math.pow(Math.abs(y) / (len / 2), 3) * 0.6;
+    a *= (1 + edge) * endIn;
+    const wx = -y; // the log is turned on its side: geometry y runs along world -x
+    const r = logR(wx) + 0.035 + 0.02 * Math.sin(a * 7 + y * 5);
+    p.setXYZ(i, Math.sin(a + Math.PI / 2) * r, y, Math.cos(a + Math.PI / 2) * r);
+  }
+  geo.computeVertexNormals();
+  const m = new THREE.Mesh(geo, mossMaterial(1.2, 2.2));
+  m.rotation.z = Math.PI / 2;
+  m.position.y = 0.75;
+  return m;
+}
+
+function logTufts() {
+  const spots: { p: THREE.Vector3; n: THREE.Vector3 }[] = [];
+  for (let i = 0; i < 14; i++) {
+    const x = -1.4 + (i / 13) * 2.8 + Math.sin(i * 7.3) * 0.12;
+    const a = Math.sin(i * 3.7) * 0.6; // around the log from the top
+    const n = new THREE.Vector3(0, Math.cos(a), Math.sin(a));
+    spots.push({ p: new THREE.Vector3(x, 0.75, 0).addScaledVector(n, logR(x) + 0.04), n });
+  }
+  return grassTufts(spots, 3, 0.9);
+}
 const CACHE_RANGE = 3.5;
 const MIN_CACHE_SPACING = 8;
 
@@ -131,10 +171,7 @@ export class Stations {
       s.userData.lift = 0.06 + Math.random() * 0.1; // a loose heap
       g.add(s);
     }
-    const moss = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2), lam(0x6aa83f));
-    moss.scale.set(1.6, 0.35, 0.95);
-    moss.position.y = 1.45;
-    g.add(moss);
+    g.add(mossDrape(), logTufts());
     const beam = new THREE.Mesh(
       new THREE.CylinderGeometry(0.3, 0.6, 24, 10, 1, true),
       new THREE.MeshBasicMaterial({
