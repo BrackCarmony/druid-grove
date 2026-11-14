@@ -731,6 +731,7 @@ function renderCompass() {
 let menuOpen = false;
 type MenuKind = 'shop' | 'rings' | 'travel' | 'pause';
 let pausedAt = 0; // when the Esc menu last opened (see the Escape handling below)
+let escClosedAt = -1e9; // when Esc last closed a menu (that Esc mustn't also open the pause menu)
 let menuKind: MenuKind | null = null;
 let started = false;
 let mouseDown = false;
@@ -1201,6 +1202,7 @@ addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && menuOpen) {
     // The same Esc that released the mouse can arrive here too; don't let it close the menu it opened.
     if (menuKind === 'pause' && performance.now() - pausedAt < 400) return;
+    escClosedAt = performance.now();
     return openMenu(null);
   }
   if (e.code === 'Escape' && !buildOpen) return openMenu('pause');
@@ -1251,7 +1253,9 @@ document.addEventListener('pointerlockchange', () => {
   // Esc while the mouse is captured: the browser releases it (and keeps the key press), so
   // this is where Esc opens the menu, or skips the ending.
   if (ending.active) ending.skip();
-  else if (!menuOpen) openMenu('pause');
+  // Esc that just closed the shop or rings list: the browser can drop the mouse we re-captured
+  // for that same key. Leave it at that (a click recaptures) rather than opening the pause menu.
+  else if (!menuOpen && performance.now() - escClosedAt > 700) openMenu('pause');
 });
 addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
