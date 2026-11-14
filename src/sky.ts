@@ -27,6 +27,19 @@ export function createSky(): THREE.Group {
         uniform float uTime;
         varying vec3 vDir;
         ${GLSL_NOISE}
+        float hash31(vec3 p){ p = fract(p*vec3(0.1031,0.1030,0.0973)); p += dot(p, p.yxz+33.33); return fract((p.x+p.y)*p.z); }
+        // One star per lucky cell, at a jittered spot near the cell's middle; radius in cell units.
+        float stars(vec3 d, float n, float keep, float radius){
+          vec3 g = d * n;
+          vec3 c = floor(g);
+          float h = hash31(c);
+          if (h < keep) return 0.0;
+          vec3 o = 0.3 + 0.4*vec3(hash31(c+1.7), hash31(c+5.3), hash31(c+9.1));
+          float dist = length(g - c - o);
+          float r = radius * (0.6 + 0.8*hash31(c+2.9));
+          float tw = 0.6 + 0.4*sin(uTime*(1.5 + 2.0*hash31(c+4.4)) + h*60.0);
+          return smoothstep(r, r*0.3, dist) * tw;
+        }
         void main(){
           vec3 d = normalize(vDir);
           float h = d.y;
@@ -38,11 +51,9 @@ export function createSky(): THREE.Group {
           float sd = max(dot(d, uSunDir), 0.0);
           col += vec3(1.0,0.62,0.38) * pow(sd, 8.0) * 0.55;
           col += vec3(1.0,0.9,0.7) * smoothstep(0.9985, 0.9993, sd);
-          // stars
-          vec2 sp = vec2(atan(d.z, d.x)*90.0, h*150.0);
-          float star = step(0.985, hash21(floor(sp)));
-          float tw = 0.6 + 0.4*sin(uTime*2.0 + hash21(floor(sp)+3.0)*30.0);
-          col += star * tw * smoothstep(0.15, 0.6, h) * 0.9;
+          // stars: round points in 3D cells over the sphere, so they're even all the way up
+          float st = stars(d, 70.0, 0.965, 0.22) + stars(d, 32.0, 0.94, 0.16) * 1.4;
+          col += st * smoothstep(0.15, 0.6, h) * 0.9;
           gl_FragColor = vec4(col, 1.0);
         }
       `,
