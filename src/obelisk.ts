@@ -9,8 +9,8 @@ import { wdist, World } from './world';
 // The Verdant Obelisk: a tall old standing stone near home where the nymph trades pollen and
 // honey for tools, mounts and upgrades (the shop). Press E beside it.
 
-export const OBELISK_X = 9;
-export const OBELISK_Z = -2;
+export const OBELISK_X = 0;
+export const OBELISK_Z = 19; // flat, dry ground in the starting glade, clear of the creek
 const RANGE = 5;
 const H = 7.5; // shaft height above its plinth
 const BURY = 3;
