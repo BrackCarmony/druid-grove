@@ -74,7 +74,6 @@ export interface NymphRig {
   cape: THREE.Group | null;
   wings: THREE.Group[];
   tools: Record<ToolId, THREE.Object3D>;
-  glow: THREE.Mesh;
   anim: NymphAnim;
 }
 
@@ -321,16 +320,6 @@ export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
   const handR = arms[1].hand;
   const tools = buildHandTools(handR, M);
 
-  // Soft glow at her feet so she reads from far away.
-  const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(0.6, 20),
-    new THREE.MeshBasicMaterial({ color: 0xc6ff9e, transparent: true, opacity: 0.35, depthWrite: false }),
-  );
-  glow.rotation.x = -Math.PI / 2;
-  glow.position.y = 0.03;
-  glow.userData.keep = true;
-  root.add(glow);
-
   bake(root);
   return {
     root,
@@ -347,7 +336,6 @@ export function buildNymph(lk: Look = DEFAULT_LOOK): NymphRig {
     cape,
     wings,
     tools,
-    glow,
     anim: { phase: 0, speed: 0, air: 0, work: 0, blinkT: 2, last: new Map() },
   };
 }
@@ -884,8 +872,4 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   if (A.blinkT < 0) A.blinkT = 2.5 + Math.random() * 3.5;
   rig.eyes.scale.y = Math.max(0.1, eyeOpen);
   rig.eyes.position.y = (1 - eyeOpen) * 0.004;
-
-  // The glow pulses gently (and stays on the ground, so it's hidden while riding).
-  rig.glow.visible = !s.riding;
-  (rig.glow.material as THREE.MeshBasicMaterial).opacity = 0.3 + Math.sin(time * 2) * 0.05;
 }

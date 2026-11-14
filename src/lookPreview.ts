@@ -61,7 +61,6 @@ export class LookPreview {
       });
     }
     this.rig = buildNymph(lk);
-    this.rig.glow.visible = false;
     setNymphTool(this.rig, 'tweezers');
     this.stand.add(this.rig.root);
   }
