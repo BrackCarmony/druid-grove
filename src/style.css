@@ -887,3 +887,39 @@ body:not(.cinematic) #ending .skip {
   width: 100%;
   padding: 12px;
 }
+
+/* ---------- shop pages ---------- */
+.shop-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 16px;
+}
+.shop-tabs button {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink);
+  font-weight: 500;
+  padding: 7px 12px;
+}
+.shop-tabs button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+.shop-tabs button.on {
+  background: var(--accent, #9be37a);
+  color: #1d2a14;
+}
+/* Something on this page is affordable right now. */
+.shop-tabs button.can::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #8fe36a;
+}
+.shop-page {
+  min-height: 220px;
+}

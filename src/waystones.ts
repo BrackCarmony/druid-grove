@@ -263,7 +263,7 @@ function makeMats() {
     ivy: new THREE.MeshLambertMaterial({ color: 0x4f9e3e, side: THREE.DoubleSide }),
   };
 }
-function materials() {
+export function stoneMaterials() {
   return (mats ??= makeMats());
 }
 
@@ -310,7 +310,7 @@ const POST_H = 3.2;
 
 function stoneModel() {
   const g = new THREE.Group();
-  const M = materials();
+  const M = stoneMaterials();
   for (const s of [-1, 1]) {
     // Posts run 3 m into the ground so uneven terrain never shows a gap under them.
     const geo = scaleUV(roughBlock(0.78, POST_H + POST_BURY, 0.78, [2, 8, 2], 0.14, s * 3), 0.5, 3);

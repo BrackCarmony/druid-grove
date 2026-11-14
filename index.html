@@ -51,41 +51,47 @@
       <div id="keys">
         <b>WASD</b> move · <b>Shift</b> run · <b>Space</b> hop · <b>Hold click</b> plant · <b>Scroll</b> zoom ·
         <b>1-5</b> tools &amp; mounts · <b>B</b> build · <b>T</b> travel · <b>G</b> rings · <b>F</b> auto-plant ·
-        <b>E</b> shop
+        <b>E</b> shop (at the obelisk)
       </div>
     </div>
 
     <div id="shop" class="hidden">
       <div class="shop-inner">
         <div class="shop-head">
-          <h2>The Nymph's Satchel</h2>
+          <h2>The Verdant Obelisk</h2>
           <div>
             <span class="ico">✿</span> <span id="shop-pollen">0</span> &nbsp; <i class="i-honey"></i>
             <span id="shop-honey">0</span>
           </div>
         </div>
-        <h3>Tools</h3>
-        <div id="shop-tools" class="shop-grid"></div>
-        <h3>Mounts</h3>
-        <div id="shop-mounts" class="shop-grid"></div>
-        <h3>Planting</h3>
-        <div id="shop-planting" class="shop-grid"></div>
-        <h3>Seeds</h3>
-        <div id="shop-seeds" class="shop-grid"></div>
-        <h3>
-          Squirrels <span class="dim small">· build caches in the world with <b>B</b></span>
-        </h3>
-        <div id="shop-squirrels" class="shop-grid"></div>
-        <h3>Soil</h3>
-        <div id="shop-soil" class="shop-grid"></div>
-        <h3>
-          Hives &amp; Bears <span class="dim small">· build beehives with <b>H</b> (needs the Rake)</span>
-        </h3>
-        <div id="shop-hives" class="shop-grid"></div>
-        <h3>
-          Fairies <span class="dim small">· paid in honey · build fairy rings with <b>R</b></span>
-        </h3>
-        <div id="shop-fairies" class="shop-grid"></div>
+        <div class="shop-tabs" id="shop-tabs"></div>
+        <section class="shop-page" data-page="tools" data-title="Tools">
+          <div id="shop-tools" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="mounts" data-title="Mounts">
+          <div id="shop-mounts" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="planting" data-title="Planting">
+          <div id="shop-planting" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="seeds" data-title="Seeds">
+          <div id="shop-seeds" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="squirrels" data-title="Squirrels">
+          <p class="small dim">Build caches out in the world with <b>B</b>.</p>
+          <div id="shop-squirrels" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="soil" data-title="Soil">
+          <div id="shop-soil" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="hives" data-title="Hives &amp; Bears">
+          <p class="small dim">Build beehives with <b>H</b> (needs the Rake).</p>
+          <div id="shop-hives" class="shop-grid"></div>
+        </section>
+        <section class="shop-page" data-page="fairies" data-title="Fairies">
+          <p class="small dim">Paid in honey. Build fairy rings with <b>R</b>.</p>
+          <div id="shop-fairies" class="shop-grid"></div>
+        </section>
         <div class="shop-foot">
           <button id="home">Save &amp; go home</button>
           <span>Press <b>E</b> or <b>Esc</b> to close</span>

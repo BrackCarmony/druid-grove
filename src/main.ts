@@ -29,6 +29,7 @@ import { Player } from './player';
 import { DeadScenery, HeartTrees } from './props';
 import { createSky, restoreMoon } from './sky';
 import { Ending } from './ending';
+import { Obelisk } from './obelisk';
 import { Stations } from './stations';
 import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
 import { HALF, SOIL_NAMES, Soil, wdist, World, wrap } from './world';
@@ -132,6 +133,9 @@ const fairies = new FairyRings(world, econ, garden, stations, particles);
 scene.add(fairies.group);
 const waystones = new Waystones(world, colliders);
 scene.add(waystones.group);
+// The shop: a great stone obelisk near home.
+const obelisk = new Obelisk(world, colliders);
+scene.add(obelisk.group);
 stations.extraHubs = () => waystones.stones.map((w) => ({ x: w.x, z: w.z, label: w.label }));
 
 interface SaveExtra {
@@ -272,6 +276,45 @@ function card(name: string, desc: string, label: string, can: () => boolean, onB
 /** Light up anything that's become affordable (or dim what no longer is) without rebuilding the shop. */
 function refreshShopButtons() {
   for (const { button, can } of shopButtons) button.disabled = !can();
+  renderShopTabs();
+}
+
+// ---------- shop pages ----------
+const shopPages = [...document.querySelectorAll<HTMLElement>('#shop .shop-page')];
+let shopPage = (() => {
+  try {
+    return localStorage.getItem('dg-shop-page') ?? 'tools';
+  } catch {
+    return 'tools';
+  }
+})();
+if (!shopPages.some((p) => p.dataset.page === shopPage)) shopPage = 'tools';
+const shopTabs = shopPages.map((page) => {
+  const b = document.createElement('button');
+  b.innerHTML = page.dataset.title!;
+  b.onclick = () => {
+    shopPage = page.dataset.page!;
+    try {
+      localStorage.setItem('dg-shop-page', shopPage);
+    } catch {
+      /* fine */
+    }
+    renderShopTabs();
+  };
+  $('shop-tabs').appendChild(b);
+  return { b, page };
+});
+/** Show the chosen page; dot the tabs with something affordable on them. */
+function renderShopTabs() {
+  for (const { b, page } of shopTabs) {
+    const on = page.dataset.page === shopPage;
+    b.classList.toggle('on', on);
+    page.classList.toggle('hidden', !on);
+    b.classList.toggle(
+      'can',
+      !on && [...page.querySelectorAll<HTMLButtonElement>('.card button')].some((x) => !x.disabled),
+    );
+  }
 }
 
 function renderShop() {
@@ -404,6 +447,7 @@ function renderShop() {
       },
     ),
   );
+  renderShopTabs();
 }
 
 /** Where a structure would go: the cursor on foot, or under the mount. Returns null + toasts on failure. */
@@ -493,6 +537,7 @@ function buildRing() {
 
 function stoneNear(x: number, z: number) {
   for (const w of waystones.stones) if (wdist(w.x, w.z, x, z) < 6) return 'Too close to a waystone';
+  if (wdist(obelisk.x, obelisk.z, x, z) < 7) return 'Too close to the obelisk';
   return null;
 }
 
@@ -1164,7 +1209,13 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     return perf.toggleOverlay();
   }
-  if (e.code === 'KeyE') return openMenu(menuKind === 'shop' ? null : 'shop');
+  if (e.code === 'KeyE') {
+    if (menuKind === 'shop') return openMenu(null);
+    if (menuOpen) return;
+    if (obelisk.nearby(player.pos)) return openMenu('shop');
+    chimes.deny();
+    return toast('Trade at the Verdant Obelisk, near the Seed Hollow at home. Any waystone (T) can take you there.');
+  }
   if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
   if (menuOpen) return;
   if (buildOpen) {
@@ -1289,7 +1340,9 @@ function frame() {
     const ap = apiary.nearby(player.pos);
     const ring = fairies.nearby(player.pos);
     const stone = waystones.nearby(player.pos);
-    if (stone) {
+    if (obelisk.nearby(player.pos)) {
+      stationText = 'The Verdant Obelisk · press E to trade';
+    } else if (stone) {
       // Waystones are seed hubs too.
       econ.refill(1500 * dt);
       stationText = `${stone.label} · refilling seeds · press T to travel`;
@@ -1324,6 +1377,7 @@ function frame() {
   perf.mark('fairies');
   hearts.update(time, camera.position);
   waystones.update(time);
+  obelisk.update(time);
   particles.update(dt, time);
   perf.mark('props');
   world.flush();
