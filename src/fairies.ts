@@ -1,6 +1,8 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Economy, WAYFARER } from './economy';
 import { Particles } from './fx';
+import { paint } from './rig';
 import { Garden, SeedPool } from './garden';
 import { Cache, Stations } from './stations';
 import { BCHUNK, HALF, NBC, SIZE, Soil, tileIndex, wdist, World, wrap } from './world';
@@ -17,8 +19,6 @@ const MAX_FAIRIES = 1024;
 const CRUISE = 3.2; // metres above ground while travelling
 const HOVER = 0.9; // while planting
 const DRAW_DIST = 260;
-
-const lam = (color: number, emissive = 0) => new THREE.MeshLambertMaterial({ color, emissive });
 
 type State = 'fetch' | 'seek' | 'fly' | 'plant' | 'idle';
 
@@ -53,31 +53,93 @@ export interface Ring {
 const WAYFARER_HUE = 0xfff1b8;
 const PALETTE = [0xff9ee6, 0xb9a2ff, 0x9ef0ff, 0xfff59e, 0xa8ffb8];
 
+const CAPS = [0xd94f6b, 0x9b6bd9, 0xe8913a, 0x4fb6c9, 0xe0607e];
+
+// Toadstools glow faintly in their own colours, which shows at night.
+const shroomMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+shroomMat.onBeforeCompile = (shader) => {
+  shader.fragmentShader = shader.fragmentShader.replace(
+    '#include <emissivemap_fragment>',
+    '#include <emissivemap_fragment>\ntotalEmissiveRadiance += vColor.rgb * 0.22;',
+  );
+};
+shroomMat.customProgramCacheKey = () => 'shroom-glow';
+
+/** One toadstool as a single painted mesh: a bulbous stem with a skirt, gills, a spotted cap. */
+function toadstool(cap: number, seed: number) {
+  let s = seed * 7919 + 1;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const v = (r: number, y: number) => new THREE.Vector2(r, y);
+  const parts: THREE.BufferGeometry[] = [];
+  const stem = new THREE.LatheGeometry([v(0.095, 0), v(0.1, 0.05), v(0.07, 0.15), v(0.058, 0.28), v(0.065, 0.37)], 10);
+  parts.push(paint(stem, 0xf3ead8));
+  const skirt = new THREE.CylinderGeometry(0.066, 0.1, 0.05, 10, 1, true).translate(0, 0.29, 0);
+  parts.push(paint(skirt, 0xfff6e6));
+  parts.push(paint(new THREE.LatheGeometry([v(0.06, 0.372), v(0.16, 0.36), v(0.27, 0.352)], 16), 0xf2d2c2)); // gills
+  const dome = new THREE.LatheGeometry(
+    [v(0.27, 0.352), v(0.28, 0.38), v(0.255, 0.43), v(0.2, 0.48), v(0.12, 0.513), v(0, 0.528)],
+    16,
+  );
+  parts.push(paint(dome, cap));
+  const n = 5 + Math.floor(rnd() * 4);
+  for (let i = 0; i < n; i++) {
+    const a = rnd() * Math.PI * 2;
+    const t = 0.15 + rnd() * 0.75; // 0 top .. 1 rim
+    const r = 0.27 * Math.sin(t * Math.PI * 0.5);
+    const y = 0.528 - 0.15 * t * t;
+    const dot = new THREE.IcosahedronGeometry(0.025 + rnd() * 0.018, 1).scale(1, 0.35, 1);
+    dot.rotateZ(-t * 1.2).rotateY(-a);
+    dot.translate(Math.cos(a) * r, y - 0.004, Math.sin(a) * r);
+    parts.push(paint(dot, 0xffffff));
+  }
+  const geo = mergeGeometries(parts)!;
+  parts.forEach((p) => p.dispose());
+  return geo;
+}
+
+let ringGlowTex: THREE.CanvasTexture | null = null;
+
+/** A soft lilac band under the mushrooms, fading out inside and beyond. */
+function glowTexture() {
+  if (ringGlowTex) return ringGlowTex;
+  const S = 128;
+  const c = document.createElement('canvas');
+  c.width = c.height = S;
+  const g = c.getContext('2d')!;
+  const grd = g.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+  grd.addColorStop(0, 'rgba(224,184,255,0.15)');
+  grd.addColorStop(0.55, 'rgba(224,184,255,0.3)');
+  grd.addColorStop(0.75, 'rgba(240,210,255,0.9)');
+  grd.addColorStop(1, 'rgba(224,184,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, S, S);
+  return (ringGlowTex = new THREE.CanvasTexture(c));
+}
+
 function ringModel() {
   const g = new THREE.Group();
-  const stem = lam(0xf3ead8);
-  const caps = [lam(0xd94f6b), lam(0x9b6bd9), lam(0xe8913a)];
-  const dots = lam(0xffffff);
-  for (let i = 0; i < 11; i++) {
-    const a = (i / 11) * Math.PI * 2;
-    const s = 0.7 + ((i * 37) % 5) * 0.12;
-    const m = new THREE.Group();
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.09, 0.4, 6), stem);
-    st.position.y = 0.2;
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 5, 0, Math.PI * 2, 0, Math.PI / 2), caps[i % 3]);
-    cap.position.y = 0.38;
-    cap.scale.y = 0.7;
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.04, 4, 3), dots);
-    dot.position.set(0.08, 0.5, 0.05);
-    m.add(st, cap, dot);
-    m.scale.setScalar(s);
+  // Twelve toadstools round the ring, with little ones sprouting between.
+  const R = 1.8;
+  for (let i = 0; i < 20; i++) {
+    const big = i < 12;
+    const a = big ? (i / 12) * Math.PI * 2 : ((i - 12 + 0.5) / 8) * Math.PI * 2 + 0.15;
+    const r = R + (big ? ((i * 13) % 5) * 0.05 - 0.1 : 0.25 * Math.sin(i * 5.1));
+    const m = new THREE.Mesh(toadstool(CAPS[(i * 3) % CAPS.length], i + 1), shroomMat);
+    m.scale.setScalar(big ? 0.9 + ((i * 37) % 5) * 0.1 : 0.5 + ((i * 7) % 3) * 0.12);
+    m.rotation.set(Math.sin(i * 2.3) * 0.18, i * 1.7, Math.cos(i * 1.9) * 0.18);
     m.name = 'ground';
-    m.position.set(Math.cos(a) * 1.8, 0, Math.sin(a) * 1.8);
+    m.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
     g.add(m);
   }
   const glow = new THREE.Mesh(
-    new THREE.CircleGeometry(1.6, 24, 0, Math.PI * 2).rotateX(-Math.PI / 2), // draped over the ground in build()
-    new THREE.MeshBasicMaterial({ color: 0xe0b8ff, transparent: true, opacity: 0.25, depthWrite: false }),
+    new THREE.RingGeometry(0.01, 2.5, 40, 4).rotateX(-Math.PI / 2), // draped over the ground in build()
+    new THREE.MeshBasicMaterial({
+      map: glowTexture(),
+      color: 0xe0b8ff,
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+    }),
   );
   glow.name = 'glow';
   g.add(glow);

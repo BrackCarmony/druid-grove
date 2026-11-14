@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Colliders } from './colliders';
 import { Economy, HIVE } from './economy';
 import { applyMoss, grassTufts } from './moss';
+import { lam, leafGeo } from './rig';
+import { barkMaterial, endGrainMaterial, scaleUV } from './wood';
 import { HALF, tileIndex, wdist, World, wrap } from './world';
 
 // The production branch: beehives make honey from the blooms around them, and
@@ -16,8 +18,6 @@ const DEN_SPACING = 40;
 const BEES_PER_HIVE = 14;
 const MAX_BEES = 2048;
 const BEE_DRAW_DIST = 140;
-
-const lam = (color: number, emissive = 0) => new THREE.MeshLambertMaterial({ color, emissive });
 
 function colored(geo: THREE.BufferGeometry, hex: number) {
   const g = geo.index ? geo.toNonIndexed() : geo;
@@ -103,32 +103,150 @@ function beeGeometry() {
   return mergeGeometries(parts)!;
 }
 
+const COILS = 7;
+let strawTex: THREE.CanvasTexture | null = null;
+
+/** Two coils of straw per tile: fibres running around, shadowed seams, and binding stitches staggered
+ * from one coil to the next. */
+function strawTexture() {
+  if (strawTex) return strawTex;
+  const W = 256;
+  const H = 128;
+  const C = H / 2; // one coil
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  let seed = 5;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  g.fillStyle = '#e2b25a';
+  g.fillRect(0, 0, W, H);
+  g.lineCap = 'round';
+  for (let i = 0; i < 260; i++) {
+    const y = Math.floor(rnd() * 2) * C + 6 + rnd() * (C - 12);
+    const x = rnd() * W;
+    const len = 30 + rnd() * 80;
+    g.strokeStyle = `hsla(${38 + rnd() * 10},${55 + rnd() * 20}%,${rnd() < 0.5 ? 55 + rnd() * 10 : 72 + rnd() * 12}%,0.7)`;
+    g.lineWidth = 1 + rnd() * 1.5;
+    for (const ox of [-W, 0, W]) {
+      g.beginPath();
+      g.moveTo(x + ox, y);
+      g.quadraticCurveTo(x + ox + len / 2, y + (rnd() - 0.5) * 3, x + ox + len, y + (rnd() - 0.5) * 2);
+      g.stroke();
+    }
+  }
+  // Seams between coils.
+  for (const y of [0, C, H]) {
+    for (const dir of [1, -1]) {
+      if ((y === 0 && dir < 0) || (y === H && dir > 0)) continue;
+      const grd = g.createLinearGradient(0, y, 0, y + dir * 10);
+      grd.addColorStop(0, 'rgba(90,50,10,0.55)');
+      grd.addColorStop(1, 'rgba(90,50,10,0)');
+      g.fillStyle = grd;
+      g.fillRect(0, Math.min(y, y + dir * 10), W, 10);
+    }
+  }
+  // Binding stitches wrapped round each coil, half a step along on the next one.
+  for (let k = 0; k < 2; k++) {
+    for (let x = 8 + k * 16; x < W; x += 32) {
+      const y0 = k * C + 4;
+      const y1 = (k + 1) * C - 4;
+      g.strokeStyle = 'rgba(120,75,25,0.85)';
+      g.lineWidth = 3;
+      g.beginPath();
+      g.moveTo(x, y0);
+      g.lineTo(x + 6, y1);
+      g.stroke();
+      g.strokeStyle = 'rgba(255,225,150,0.6)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(x - 1, y0);
+      g.lineTo(x + 5, y1);
+      g.stroke();
+    }
+  }
+  strawTex = new THREE.CanvasTexture(c);
+  strawTex.colorSpace = THREE.SRGBColorSpace;
+  strawTex.wrapS = strawTex.wrapT = THREE.RepeatWrapping;
+  strawTex.anisotropy = 4;
+  return strawTex;
+}
+
+/** The skep's outline at t (0 base .. 1 top), before coil ridges. */
+function skepR(t: number) {
+  return 0.68 * Math.pow(Math.max(0, Math.cos(t * Math.PI * 0.5)), 0.55) + 0.02;
+}
+const SKEP_BASE = 0.5;
+const SKEP_H = 1.3;
+
 function hiveModel() {
   const g = new THREE.Group();
-  const straw = lam(0xd9a24a);
-  const dark = lam(0xa8742c);
-  // The stand runs 2 m into the ground so it meets the terrain on any slope.
-  const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.65, 2.5, 8), lam(0x6b4a33));
-  stand.position.y = 0.5 - 1.25;
-  g.add(stand);
-  // a classic straw skep: stacked coils shrinking toward the top
-  for (let k = 0; k < 6; k++) {
-    const r = 0.62 * Math.cos((k / 6) * 1.25);
-    const coil = new THREE.Mesh(new THREE.TorusGeometry(Math.max(0.12, r), 0.13, 6, 14), k % 2 ? straw : dark);
-    coil.rotation.x = Math.PI / 2;
-    coil.position.y = 0.6 + k * 0.2;
-    g.add(coil);
+  // A sawn stump to sit on, running 2 m into the ground so it meets the terrain on any slope.
+  const stand = new THREE.Mesh(
+    scaleUV(new THREE.CylinderGeometry(0.55, 0.65, 2.5, 12, 1, true), 2, 2),
+    barkMaterial(0x6b4a33),
+  );
+  stand.position.y = SKEP_BASE - 1.25;
+  const top = new THREE.Mesh(new THREE.CircleGeometry(0.55, 12).rotateX(-Math.PI / 2), endGrainMaterial(0xc9a27a));
+  top.position.y = SKEP_BASE;
+  g.add(stand, top);
+
+  // A straw skep: one lathed shell, bulging into a ridge for each coil.
+  const pts: THREE.Vector2[] = [];
+  const rows = COILS * 10;
+  for (let j = 0; j <= rows; j++) {
+    const t = j / rows;
+    const ridge = Math.sin(((j % 10) / 10) * Math.PI); // 0 at seams, 1 mid-coil
+    const r = j === rows ? 0 : skepR(t) + 0.045 * ridge * (1 - t * 0.5);
+    pts.push(new THREE.Vector2(r, SKEP_BASE + t * SKEP_H - 0.02));
   }
-  const fill = new THREE.Mesh(new THREE.SphereGeometry(0.62, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), straw);
-  fill.scale.y = 1.7;
-  fill.position.y = 0.55;
-  g.add(fill);
-  const door = new THREE.Mesh(new THREE.CircleGeometry(0.13, 10), lam(0x2a1a0c));
-  door.position.set(0, 0.7, 0.68);
-  g.add(door);
-  // honey drip that swells as the hive fills
-  const drip = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), lam(0xffb627, 0x553300));
-  drip.position.set(0, 0.55, 0.7);
+  const tex = strawTexture().clone();
+  tex.repeat.set(3, COILS / 2); // two coils per texture tile (lathe v runs evenly over the rows)
+  tex.needsUpdate = true;
+  const skep = new THREE.Mesh(
+    new THREE.LatheGeometry(pts, 28),
+    new THREE.MeshLambertMaterial({ color: 0xffffff, map: tex }),
+  );
+  g.add(skep);
+
+  // The entrance: a dark arch in the bottom coil with a little landing board.
+  const r0 = skepR(0.05) + 0.03;
+  const door = new THREE.Mesh(new THREE.CircleGeometry(0.2, 14, 0, Math.PI), lam(0x1e1208));
+  door.position.set(0, SKEP_BASE + 0.02, r0 + 0.01);
+  door.rotation.x = -0.05;
+  const board = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.04, 0.22), barkMaterial(0x8a6442));
+  board.position.set(0, SKEP_BASE + 0.0, r0 + 0.06);
+  g.add(door, board);
+
+  // A sprig on top: three leaves and a flower.
+  const sprig = new THREE.Group();
+  const leaf = leafGeo(0.14, 0.3, 0.3);
+  const leafMat = lam(0x5fae4a, 0, THREE.DoubleSide);
+  for (let i = 0; i < 3; i++) {
+    const l = new THREE.Mesh(leaf, leafMat);
+    l.rotation.set(-0.9, (i / 3) * Math.PI * 2, 0, 'YXZ');
+    sprig.add(l);
+  }
+  const petalMat = lam(0xffd6e8, 0x553344, THREE.DoubleSide);
+  const petal = leafGeo(0.12, 0.14, 0.15);
+  for (let i = 0; i < 5; i++) {
+    const pm = new THREE.Mesh(petal, petalMat);
+    pm.position.y = 0.16;
+    pm.rotation.set(-1.2, (i / 5) * Math.PI * 2 + 0.3, 0, 'YXZ');
+    sprig.add(pm);
+  }
+  const centre = new THREE.Mesh(new THREE.IcosahedronGeometry(0.035, 0), lam(0xffe066, 0x332200));
+  centre.position.y = 0.17;
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.015, 0.16, 4).translate(0, 0.08, 0), lam(0x4f8f32));
+  sprig.add(centre, stem);
+  sprig.position.y = SKEP_BASE + SKEP_H - 0.05;
+  sprig.rotation.z = 0.15;
+  g.add(sprig);
+
+  // Honey seeping from the doorway, swelling as the hive fills.
+  const honey = lam(0xffb627, 0x553300);
+  const drip = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), honey);
+  drip.position.set(0.24, 0.55, r0 + 0.04); // beside the doorway, on the board
   drip.name = 'drip';
   g.add(drip);
   return g;

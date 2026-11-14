@@ -90,3 +90,35 @@ export function bake(root: THREE.Object3D) {
     for (const [mat, geos] of byMat) j.add(new THREE.Mesh(mergeGeometries(geos)!, mat));
   }
 }
+
+/** Position + normal + a flat vertex colour, ready to merge with other painted parts. */
+export function paint(g: THREE.BufferGeometry, color: number | THREE.Color) {
+  const n = plain(g);
+  const c = color instanceof THREE.Color ? color : new THREE.Color(color);
+  const arr = new Float32Array(n.attributes.position.count * 3);
+  for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
+  n.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  return n;
+}
+
+/** Lean a material's vertices in the wind, more the higher they are above `from` (local y). */
+export function windSway(mat: THREE.Material, uTime: { value: number }, from: number, amount: number) {
+  const prev = mat.onBeforeCompile.bind(mat);
+  mat.onBeforeCompile = (shader, renderer) => {
+    shader.uniforms.uTime = uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+{
+  float h = max(0.0, position.y - ${from.toFixed(2)});
+  float w = sin(uTime * 1.1 + position.x * 0.35) + 0.4 * sin(uTime * 2.3 + position.z * 0.9 + position.y);
+  transformed.xz += vec2(w, w * 0.6) * h * ${amount.toFixed(4)};
+}`,
+      );
+    prev(shader, renderer);
+  };
+  const prevKey = mat.customProgramCacheKey.bind(mat);
+  mat.customProgramCacheKey = () => `sway${from},${amount}|` + prevKey();
+}

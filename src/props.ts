@@ -4,6 +4,8 @@ import { mulberry32 } from './noise';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Glade, HALF, Soil, SIZE, tileIndex, wdist, World } from './world';
 import { barkMaterial, scaleUV, woodCylinder } from './wood';
+import { leafGeo, paint, windSway } from './rig';
+import { sharedUniforms } from './terrain';
 
 // Scenery: dead stumps and boulders on the wasteland, the dormant heart-seed in
 // each glade, and the heart tree that grows when a glade is restored.
@@ -126,6 +128,95 @@ export class DeadScenery {
 
 const TREE_DIST = 330;
 
+const LEAF_GREENS = [0x4f9e3e, 0x5fae4a, 0x6cbb4f, 0x84c95a, 0x3f8a3a];
+
+function swaying(m: THREE.MeshLambertMaterial) {
+  windSway(m, sharedUniforms.uTime, 6.5, 0.012);
+  return m;
+}
+
+/**
+ * A heart tree's crown: lumpy faceted clumps of foliage, shaded darker underneath, fringed
+ * with leaves so the outline is leafy, and dotted with blossoms in the glade's colours.
+ */
+function canopyParts(palette: number[], rng: () => number) {
+  const parts: THREE.BufferGeometry[] = [];
+  const leaf = leafGeo(0.5, 0.85, 0.3);
+  const petal = leafGeo(0.2, 0.26, 0.15);
+  const c = new THREE.Color();
+  const q = new THREE.Quaternion();
+  const m = new THREE.Matrix4();
+  const up = new THREE.Vector3(0, 1, 0);
+  const n = new THREE.Vector3();
+  const clumps: { x: number; y: number; z: number; r: number }[] = [];
+  for (let i = 0; i < 13; i++) {
+    const a = rng() * Math.PI * 2;
+    const d = i === 0 ? 0 : 1.2 + rng() * 2.2;
+    const r = i === 0 ? 3 : 1.5 + rng() * 1.3;
+    clumps.push({ x: Math.cos(a) * d, y: 8.2 + rng() * 3.2 + (i === 0 ? 1 : 0), z: Math.sin(a) * d, r });
+  }
+  for (const k of clumps) {
+    const base = LEAF_GREENS[Math.floor(rng() * 3) + 1];
+    const blob = new THREE.IcosahedronGeometry(k.r, 2).toNonIndexed();
+    blob.deleteAttribute('uv');
+    const p = blob.attributes.position;
+    // Lumpy: push each corner in or out a little (same corner, same push, so faces stay joined).
+    for (let i = 0; i < p.count; i++) {
+      n.set(p.getX(i), p.getY(i), p.getZ(i));
+      const bump = 1 + 0.13 * Math.sin(n.x * 2.7 + n.z * 1.9) * Math.cos(n.y * 2.3 + n.x);
+      n.multiplyScalar(bump);
+      p.setXYZ(i, n.x + k.x, n.y + k.y, n.z + k.z);
+    }
+    blob.computeVertexNormals(); // faceted
+    const col = new Float32Array(p.count * 3);
+    const nr = blob.attributes.normal;
+    for (let f = 0; f < p.count; f += 3) {
+      // Per face: darker below, sunlit above, and a little random dappling.
+      const ny = nr.getY(f);
+      c.setHex(base).multiplyScalar(0.86 + 0.24 * (ny * 0.5 + 0.5) + (rng() - 0.5) * 0.12);
+      for (let v = 0; v < 3; v++) col.set([c.r, c.g, c.b], (f + v) * 3);
+    }
+    blob.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    parts.push(blob);
+
+    // A fringe of leaves, and a few blossoms, around the clump's upper and outer surface.
+    const leaves = Math.round(k.r * k.r * 13);
+    for (let i = 0; i < leaves; i++) {
+      const u = rng() * 2 - 1;
+      const t = rng() * Math.PI * 2;
+      n.set(Math.sqrt(1 - u * u) * Math.cos(t), u, Math.sqrt(1 - u * u) * Math.sin(t));
+      if (n.y < -0.55) continue; // nobody sees the bottom
+      const at = new THREE.Vector3(k.x, k.y, k.z).addScaledVector(n, k.r * 0.93);
+      // Stem in the clump, tip pointing out and drooping a little.
+      const dir = n.clone().addScaledVector(up, -0.35).normalize();
+      q.setFromUnitVectors(up, dir);
+      q.multiply(new THREE.Quaternion().setFromAxisAngle(up, rng() * Math.PI * 2));
+      const sc = 0.75 + rng() * 0.6;
+      const lg = leaf.clone().applyMatrix4(m.compose(at, q, new THREE.Vector3(sc, sc, sc)));
+      parts.push(paint(lg, c.setHex(LEAF_GREENS[Math.floor(rng() * LEAF_GREENS.length)])));
+    }
+    const blooms = Math.round(k.r * 8);
+    for (let i = 0; i < blooms; i++) {
+      const u = -0.3 + rng() * 1.3;
+      const t = rng() * Math.PI * 2;
+      n.set(Math.sqrt(1 - u * u) * Math.cos(t), u, Math.sqrt(1 - u * u) * Math.sin(t));
+      const at = new THREE.Vector3(k.x, k.y, k.z).addScaledVector(n, k.r * 1.0);
+      q.setFromUnitVectors(up, n);
+      const col = palette[Math.floor(rng() * palette.length)];
+      for (let j = 0; j < 5; j++) {
+        const pg = petal
+          .clone()
+          .rotateX(-1.1)
+          .rotateY((j / 5) * Math.PI * 2);
+        parts.push(paint(pg.applyMatrix4(m.compose(at, q, new THREE.Vector3(1.9, 1.9, 1.9))), col));
+      }
+      const centre = new THREE.IcosahedronGeometry(0.1, 0).applyMatrix4(m.compose(at, q, new THREE.Vector3(1, 1, 1)));
+      parts.push(paint(centre, 0xffe066));
+    }
+  }
+  return parts;
+}
+
 export class HeartTrees {
   /** Render-distance scale (1 = full). */
   viewScale = 1;
@@ -136,7 +227,7 @@ export class HeartTrees {
   private seedPos: { x: number; y: number; z: number; alive: boolean }[] = [];
   private trees: { obj: THREE.Mesh; born: number; x: number; z: number; size: number; grown: boolean }[] = [];
   private treeGeos = new Map<number, { canopy: THREE.BufferGeometry; trunk: THREE.BufferGeometry }>();
-  private treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private treeMat = swaying(new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
   private trunkMat = barkMaterial(0x6b4a33);
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
@@ -184,16 +275,6 @@ export class HeartTrees {
     let geo = this.treeGeos.get(g.paletteId);
     if (geo) return geo;
     const rng = mulberry32(g.paletteId * 31 + 5);
-    const parts: THREE.BufferGeometry[] = [];
-    const add = (geom: THREE.BufferGeometry, hex: number) => {
-      const gg = geom.index ? geom.toNonIndexed() : geom;
-      gg.deleteAttribute('uv');
-      const c = new THREE.Color(hex);
-      const arr = new Float32Array(gg.attributes.position.count * 3);
-      for (let i = 0; i < arr.length; i += 3) arr.set([c.r, c.g, c.b], i);
-      gg.setAttribute('color', new THREE.BufferAttribute(arr, 3));
-      parts.push(gg);
-    };
     // The trunk and branches are a separate, bark-textured mesh.
     const wood: THREE.BufferGeometry[] = [
       scaleUV(new THREE.CylinderGeometry(0.5, 1.1, 7, 10).translate(0, 3.5, 0), 3, 4),
@@ -206,13 +287,7 @@ export class HeartTrees {
       br.translate(Math.cos(a) * 1.0, 6.5, Math.sin(a) * 1.0);
       wood.push(br);
     }
-    for (let i = 0; i < 14; i++) {
-      const r = 1.6 + rng() * 1.6;
-      const a = rng() * Math.PI * 2;
-      const d = rng() * 3.2;
-      const blob = new THREE.IcosahedronGeometry(r, 1).translate(Math.cos(a) * d, 8 + rng() * 3.5, Math.sin(a) * d);
-      add(blob, rng() < 0.35 ? g.palette[0] : 0x5fae4a);
-    }
+    const parts = canopyParts(g.palette, rng);
     geo = { canopy: mergeGeometries(parts)!, trunk: mergeGeometries(wood)! };
     this.treeGeos.set(g.paletteId, geo);
     return geo;
