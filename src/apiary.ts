@@ -59,9 +59,14 @@ function bearGeometry(withPot: boolean) {
     eye.translate(s * 0.12, 1.23, 0.98);
     parts.push(colored(eye, 0x111111));
     for (const f of [-1, 1]) {
-      const leg = new THREE.CylinderGeometry(0.15, 0.16, 0.45, 7);
-      leg.translate(s * 0.32, 0.22, f * 0.42);
+      // The body's underside is ~0.45 up at the hips/shoulders, so the leg runs up into it.
+      const leg = new THREE.CylinderGeometry(0.14, 0.16, 0.66, 7);
+      leg.translate(s * 0.28, 0.33, f * 0.38);
       parts.push(colored(leg, fur));
+      const paw = new THREE.SphereGeometry(0.17, 7, 4);
+      paw.scale(1, 0.45, 1.15);
+      paw.translate(s * 0.28, 0.06, f * 0.38 + 0.03);
+      parts.push(colored(paw, 0x5e3b22));
     }
   }
   const belly = new THREE.SphereGeometry(0.38, 8, 6);
