@@ -482,7 +482,7 @@ export class Waystones {
     private world: World,
     private colliders: Colliders,
   ) {
-    this.build(0, -10, 'Waystone · home');
+    this.build(10, 16, 'Waystone · home'); // flat, dry ground in the starting glade, by the obelisk
   }
 
   get home() {
