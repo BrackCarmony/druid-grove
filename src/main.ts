@@ -970,6 +970,12 @@ function showHome(panel: 'main' | 'settings' | 'credits' | 'look') {
 $('open-settings').onclick = () => showHome('settings');
 $('open-look').onclick = () => showHome('look');
 
+/** The home screen's intro names the character being played. */
+function renderIntro() {
+  $('intro-kind').textContent = look.body === 'male' ? 'sylvan' : 'wood nymph';
+}
+renderIntro();
+
 // ---------- home screen: character customization ----------
 const lookPreview = new LookPreview($<HTMLCanvasElement>('look-preview'));
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
@@ -990,6 +996,7 @@ function renderLookOpts() {
     lookPreview.setLook(look);
     player.setLook(look);
     renderLookOpts();
+    renderIntro();
   };
   const choices = <K extends 'body' | 'hair' | 'head' | 'back'>(
     label: string,
