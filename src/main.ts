@@ -573,7 +573,7 @@ function buildStone() {
   econ.pollen -= econ.stoneCost;
   econ.stonesBuilt++;
   const st = waystones.build(p[0], p[1]);
-  built(p[0], p[1], 0x8fe8ff, `${st.label} raised! Stand in any waystone and press T to travel.`);
+  built(p[0], p[1], 0x8fe8ff, `${st.label} raised! Stand in any waystone and press E to travel.`);
 }
 
 // ---------- build menu (B) ----------
@@ -630,7 +630,7 @@ function renderBuild() {
   ).join('');
 }
 
-// ---------- waystone travel (T) ----------
+// ---------- waystone travel (E in a waystone) ----------
 function renderTravel(here: Waystone) {
   const list = $('travel-list');
   list.innerHTML = '';
@@ -1209,11 +1209,13 @@ addEventListener('keydown', (e) => {
     return perf.toggleOverlay();
   }
   if (e.code === 'KeyE') {
-    if (menuKind === 'shop') return openMenu(null);
+    // E interacts with whatever she's standing at: the obelisk (shop) or a waystone (travel).
+    if (menuKind === 'shop' || menuKind === 'travel') return openMenu(null);
     if (menuOpen) return;
     if (obelisk.nearby(player.pos)) return openMenu('shop');
+    if (waystones.nearby(player.pos)) return openMenu('travel');
     chimes.deny();
-    return toast('Trade at the Verdant Obelisk, near the Seed Hollow at home. Any waystone (T) can take you there.');
+    return toast('Nothing to use here. Press E at the Verdant Obelisk to trade, or in a waystone to travel.');
   }
   if (e.code === 'KeyG') return openMenu(menuKind === 'rings' ? null : 'rings');
   if (menuOpen) return;
@@ -1231,10 +1233,6 @@ addEventListener('keydown', (e) => {
   }
   if (e.code.startsWith('Digit')) selectSlot(Number(e.code.slice(5)) - 1);
   if (e.code === 'KeyB') showBuild(true);
-  if (e.code === 'KeyT') {
-    if (waystones.nearby(player.pos)) openMenu('travel');
-    else toast('Stand in a waystone to travel. Build them from the B menu.');
-  }
   if (e.code === 'KeyH') buildHive();
   if (e.code === 'KeyR') buildRing();
   if (e.code === 'KeyF') {
@@ -1344,7 +1342,7 @@ function frame() {
     } else if (stone) {
       // Waystones are seed hubs too.
       econ.refill(1500 * dt);
-      stationText = `${stone.label} · refilling seeds · press T to travel`;
+      stationText = `${stone.label} · refilling seeds · press E to travel`;
     } else if (ap?.kind === 'den') {
       const n = apiary.bearsAt(ap.den);
       stationText = `${ap.den.label} · ${n} bear${n === 1 ? '' : 's'} here · ${apiary.totalRate.toFixed(1)} honey/s from ${apiary.hives.length} hive${apiary.hives.length === 1 ? '' : 's'}`;
