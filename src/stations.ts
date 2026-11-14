@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { Colliders } from './colliders';
 import { Economy } from './economy';
 import { grassTufts, mossMaterial } from './moss';
+import { barkMaterial, endGrainMaterial, scaleUV } from './wood';
 import { wdist, World, wrap } from './world';
 
 // Seed sources: seed hubs (the Seed Hollow at home plus every waystone, all
@@ -154,11 +155,17 @@ export class Stations {
 
   private buildHollow() {
     const g = new THREE.Group();
-    const bark = lam(0x6b4a33);
-    const log = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 3.6, 12, 1, true), bark);
-    log.material.side = THREE.DoubleSide;
+    const log = new THREE.Mesh(
+      scaleUV(new THREE.CylinderGeometry(0.85, 0.95, 3.6, 16, 1, true), 3, 2),
+      barkMaterial(0x6b4a33, THREE.DoubleSide),
+    );
     log.rotation.z = Math.PI / 2;
     log.position.y = 0.75;
+    // The closed end shows its growth rings.
+    const end = new THREE.Mesh(new THREE.CircleGeometry(0.95, 16), endGrainMaterial(0x9a7454));
+    end.rotation.y = Math.PI / 2;
+    end.position.set(1.8, 0.75, 0);
+    g.add(end);
     const inner = new THREE.Mesh(new THREE.CircleGeometry(0.8, 12), lam(0x2a1a10));
     inner.rotation.y = -Math.PI / 2;
     inner.position.set(-1.75, 0.75, 0);
@@ -202,9 +209,12 @@ export class Stations {
     // 2 m into the earth to meet lower ground.
     const y = this.world.heightRange(x, z, 0.7).max;
     const obj = new THREE.Group();
-    const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 3.1, 9), lam(0x7a5236));
+    const stump = new THREE.Mesh(
+      scaleUV(new THREE.CylinderGeometry(0.55, 0.75, 3.1, 12, 1, true), 2.5, 2),
+      barkMaterial(0x7a5236),
+    );
     stump.position.y = 1.05 - 1.55;
-    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.05, 9), lam(0xc9a27a));
+    const top = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.05, 12), endGrainMaterial(0xc9a27a));
     top.position.y = 1.07;
     const hole = new THREE.Mesh(new THREE.CircleGeometry(0.2, 8), lam(0x24160c));
     hole.position.set(0, 0.6, 0.66);

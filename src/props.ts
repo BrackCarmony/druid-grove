@@ -3,6 +3,7 @@ import { Circle, Colliders } from './colliders';
 import { mulberry32 } from './noise';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { Glade, HALF, Soil, SIZE, tileIndex, wdist, World } from './world';
+import { barkMaterial, scaleUV, woodCylinder } from './wood';
 
 // Scenery: dead stumps and boulders on the wasteland, the dormant heart-seed in
 // each glade, and the heart tree that grows when a glade is restored.
@@ -69,14 +70,10 @@ export class DeadScenery {
   private build(world: World) {
     const g = this.group;
     const rng = mulberry32(99);
-    const stumpGeo = new THREE.CylinderGeometry(0.18, 0.28, 0.7, 6);
-    stumpGeo.translate(0, 0.3, 0);
+    const stump = woodCylinder(new THREE.CylinderGeometry(0.18, 0.28, 0.7, 7), 0x4a3a30, 0x7a6a5a, 1, 0.5);
+    const stumpGeo = stump.geo.translate(0, 0.3, 0);
     const rockGeo = new THREE.DodecahedronGeometry(0.6, 0);
-    const stumps = new THREE.InstancedMesh(
-      stumpGeo,
-      new THREE.MeshLambertMaterial({ color: 0x4a3a30 }),
-      Math.ceil(SIZE * SIZE * 0.008),
-    );
+    const stumps = new THREE.InstancedMesh(stumpGeo, stump.materials, Math.ceil(SIZE * SIZE * 0.008));
     const rocks = new THREE.InstancedMesh(
       rockGeo,
       new THREE.MeshLambertMaterial({ color: 0x77727a }),
@@ -138,8 +135,9 @@ export class HeartTrees {
   private seedIndex = new Map<number, number>(); // glade -> instance
   private seedPos: { x: number; y: number; z: number; alive: boolean }[] = [];
   private trees: { obj: THREE.Mesh; born: number; x: number; z: number; size: number; grown: boolean }[] = [];
-  private treeGeos = new Map<number, THREE.BufferGeometry>();
+  private treeGeos = new Map<number, { canopy: THREE.BufferGeometry; trunk: THREE.BufferGeometry }>();
   private treeMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private trunkMat = barkMaterial(0x6b4a33);
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private v = new THREE.Vector3();
@@ -196,14 +194,17 @@ export class HeartTrees {
       gg.setAttribute('color', new THREE.BufferAttribute(arr, 3));
       parts.push(gg);
     };
-    add(new THREE.CylinderGeometry(0.5, 1.1, 7, 8).translate(0, 3.5, 0), 0x6b4a33);
+    // The trunk and branches are a separate, bark-textured mesh.
+    const wood: THREE.BufferGeometry[] = [
+      scaleUV(new THREE.CylinderGeometry(0.5, 1.1, 7, 10).translate(0, 3.5, 0), 3, 4),
+    ];
     for (let i = 0; i < 4; i++) {
       const a = (i / 4) * Math.PI * 2 + rng();
-      const br = new THREE.CylinderGeometry(0.15, 0.35, 3.5, 6);
+      const br = scaleUV(new THREE.CylinderGeometry(0.15, 0.35, 3.5, 6), 1, 2);
       br.rotateX(Math.sin(a) * 0.7);
       br.rotateZ(-Math.cos(a) * 0.7);
       br.translate(Math.cos(a) * 1.0, 6.5, Math.sin(a) * 1.0);
-      add(br, 0x6b4a33);
+      wood.push(br);
     }
     for (let i = 0; i < 14; i++) {
       const r = 1.6 + rng() * 1.6;
@@ -212,7 +213,7 @@ export class HeartTrees {
       const blob = new THREE.IcosahedronGeometry(r, 1).translate(Math.cos(a) * d, 8 + rng() * 3.5, Math.sin(a) * d);
       add(blob, rng() < 0.35 ? g.palette[0] : 0x5fae4a);
     }
-    geo = mergeGeometries(parts)!;
+    geo = { canopy: mergeGeometries(parts)!, trunk: mergeGeometries(wood)! };
     this.treeGeos.set(g.paletteId, geo);
     return geo;
   }
@@ -228,7 +229,11 @@ export class HeartTrees {
       this.beams.instanceMatrix.needsUpdate = true;
     }
     const [x, z] = this.world.tileCenter(g.heartTile);
-    const tree = new THREE.Mesh(this.treeGeometry(g), this.treeMat);
+    const geo = this.treeGeometry(g);
+    const tree = new THREE.Mesh(geo.canopy, this.treeMat);
+    const trunk = new THREE.Mesh(geo.trunk, this.trunkMat);
+    trunk.frustumCulled = false;
+    tree.add(trunk);
     tree.position.set(x, this.world.heightAt(x, z) - 0.2, z);
     tree.rotation.y = (g.id * 2.39996) % (Math.PI * 2);
     const size = 0.85 + ((g.id * 0.618) % 1) * 0.3;
