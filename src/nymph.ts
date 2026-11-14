@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { MountId, ToolId } from './economy';
+import { bake, joint, lam, leafGeo, limb, mesh } from './rig';
 
 // The wood nymph's third-person model: a small jointed rig (hips, spine, head, two-part
 // arms and legs, swinging hair and leaf-petal skirt) with a procedural animation for
@@ -9,9 +9,6 @@ import type { MountId, ToolId } from './economy';
 // She faces -z. Limb pivots hang their meshes down -y, so rotation.x > 0 swings a limb
 // forward. After building, the meshes on each joint are merged per material so the whole
 // nymph costs a few dozen draw calls.
-
-const lam = (color: number, emissive = 0, side: THREE.Side = THREE.FrontSide) =>
-  new THREE.MeshLambertMaterial({ color, emissive, side });
 
 const M = {
   skin: lam(0xd2ecb8, 0x1c2414),
@@ -33,89 +30,6 @@ const M = {
   wood: lam(0x8a5a33),
   glove: lam(0x6fae55),
 };
-
-/** A leaf blade from its stem at the origin to its tip at +y, edges curling toward +z. */
-function leafGeo(w: number, l: number, cup = 0.35) {
-  const s = new THREE.Shape();
-  s.moveTo(0, 0);
-  s.bezierCurveTo(w * 0.62, l * 0.18, w * 0.55, l * 0.72, 0, l);
-  s.bezierCurveTo(-w * 0.55, l * 0.72, -w * 0.62, l * 0.18, 0, 0);
-  const g = new THREE.ShapeGeometry(s, 5);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i) / w;
-    const y = p.getY(i) / l;
-    // Cup across the blade, and a gentle backward arch along it.
-    p.setZ(i, x * x * w * cup * 2 + Math.sin(y * Math.PI) * l * 0.06);
-  }
-  g.computeVertexNormals();
-  return g;
-}
-
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D) {
-  const m = new THREE.Mesh(geo, mat);
-  parent.add(m);
-  return m;
-}
-
-/** A pivot joint: an empty group whose meshes get baked together later. */
-function joint(parent: THREE.Object3D, x = 0, y = 0, z = 0) {
-  const j = new THREE.Group();
-  j.position.set(x, y, z);
-  j.userData.joint = true;
-  parent.add(j);
-  return j;
-}
-
-/** A capsule hanging from its top end down -y. */
-function limb(r1: number, r2: number, len: number) {
-  const g = new THREE.CylinderGeometry(r1, r2, len, 8, 1);
-  g.translate(0, -len / 2, 0);
-  const top = new THREE.SphereGeometry(r1, 8, 5);
-  const bot = new THREE.SphereGeometry(r2, 8, 5);
-  bot.translate(0, -len, 0);
-  return merge([g, top, bot]);
-}
-
-function plain(g: THREE.BufferGeometry) {
-  const n = g.index ? g.toNonIndexed() : g;
-  for (const k of Object.keys(n.attributes)) if (k !== 'position' && k !== 'normal') n.deleteAttribute(k);
-  return n;
-}
-function merge(geos: THREE.BufferGeometry[]) {
-  return mergeGeometries(geos.map(plain))!;
-}
-
-/** Merge each joint's own meshes (not those under child joints) into one mesh per material. */
-function bake(root: THREE.Object3D) {
-  const joints: THREE.Object3D[] = [];
-  root.traverse((o) => {
-    if (o === root || o.userData.joint) joints.push(o);
-  });
-  for (const j of joints) {
-    const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
-    const owned: THREE.Mesh[] = [];
-    const collect = (o: THREE.Object3D, m: THREE.Matrix4) => {
-      for (const c of o.children) {
-        if (c.userData.joint || c.userData.keep) continue;
-        c.updateMatrix();
-        const cm = m.clone().multiply(c.matrix);
-        if (c instanceof THREE.Mesh) {
-          const g = plain(c.geometry.clone()).applyMatrix4(cm);
-          const list = byMat.get(c.material as THREE.Material) ?? [];
-          list.push(g);
-          byMat.set(c.material as THREE.Material, list);
-          owned.push(c);
-        }
-        collect(c, cm);
-      }
-    };
-    collect(j, new THREE.Matrix4());
-    if (!owned.length) continue;
-    for (const c of [...j.children]) if (!c.userData.joint && !c.userData.keep) j.remove(c);
-    for (const [mat, geos] of byMat) j.add(new THREE.Mesh(mergeGeometries(geos)!, mat));
-  }
-}
 
 export interface NymphRig {
   root: THREE.Group;
@@ -508,7 +422,6 @@ export interface NymphState {
   onGround: boolean;
   vy: number;
   riding: MountId | null;
-  mountPhase: number;
   work: number; // 0..1, planting / raking
   tool: ToolId;
 }
@@ -613,28 +526,26 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
 
   // Riding: sit on the mount's back and hold on.
   if (s.riding) {
-    const mp = s.mountPhase;
-    const bounce = Math.abs(Math.sin(mp * 2)) * Math.min(1, A.speed / 4);
-    hipY = (s.riding === 'stag' ? 0.1 : 0.06) + bounce * 0.04;
+    // The mount's own gait moves her (she's parented to its back); just sway a little.
+    hipY = s.riding === 'stag' ? 0.1 : 0.44;
     hipRotY = 0;
-    hipRotZ = Math.sin(mp) * 0.03 * Math.min(1, A.speed / 4);
-    lean = -0.12 - bounce * 0.06;
+    hipRotZ = Math.sin(time * 1.3) * 0.02 * idle;
+    lean = -0.1;
     if (s.riding === 'stag') {
-      // astride, knees gripping, feet hanging
-      // (the stag's barrel is ~0.85 m wide, so the thighs splay well out to clear it)
-      pose.lHip = pose.rHip = 0.55;
-      pose.lHipZ = -1.08;
-      pose.rHipZ = 1.08;
-      pose.lKnee = pose.rKnee = -1.0;
+      // astride the saddle, thighs hugging the stag's lean barrel, lower legs hanging
+      pose.lHip = pose.rHip = 0.5;
+      pose.lHipZ = -0.62;
+      pose.rHipZ = 0.62;
+      pose.lKnee = pose.rKnee = -0.95;
       pose.lAnkle = pose.rAnkle = 0.3;
-      pose.lSh = pose.rSh = 0.75;
-      pose.lShZ = -0.15;
-      pose.rShZ = 0.15;
-      pose.lElbow = pose.rElbow = 0.7;
+      // hands resting on the stag's withers, in its leafy mane
+      pose.lSh = pose.rSh = 0.42;
+      pose.lShZ = -0.05;
+      pose.rShZ = 0.05;
+      pose.lElbow = pose.rElbow = 1.05;
+      lean = -0.18;
     } else {
-      // kneeling on the shell (its top sits ~0.14 above the seat), sitting back on her heels,
-      // hands resting on her thighs
-      hipY = 0.5 + bounce * 0.03;
+      // kneeling on the leaf mat, sitting back on her heels, hands resting on her thighs
       pose.lHip = pose.rHip = 0.12;
       pose.lHipZ = -0.12;
       pose.rHipZ = 0.12;
@@ -644,7 +555,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
       pose.lShZ = -0.08;
       pose.rShZ = 0.08;
       pose.lElbow = pose.rElbow = 0.75;
-      lean = -0.08 - bounce * 0.04;
+      lean = -0.08;
     }
     pose.headX = 0.05;
     pose.headY = Math.sin(time * 0.4) * 0.2;

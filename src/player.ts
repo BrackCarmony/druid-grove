@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Colliders } from './colliders';
 import type { MountDef, MountId, ToolId } from './economy';
-import { animateMount, buildMount, MountModel } from './mounts';
+import { buildMount, MountModel } from './mounts';
 import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 import { World, wrap } from './world';
 
@@ -82,6 +82,7 @@ export class Player {
   ride(def: MountDef | null) {
     this.mount = def;
     for (const m of this.mountModels.values()) m.root.visible = false;
+    const nymph = this.nymph.root;
     if (def) {
       let m = this.mountModels.get(def.id);
       if (!m) {
@@ -90,9 +91,12 @@ export class Player {
         this.mountHolder.add(m.root);
       }
       m.root.visible = true;
-      this.nymph.root.position.y = m.seatY;
+      // She rides on the mount's back, so she moves with its gait.
+      m.back.add(nymph);
+      nymph.rotation.y = Math.PI; // she faces -z, mounts face +z
     } else {
-      this.nymph.root.position.y = 0;
+      this.model.add(nymph);
+      nymph.rotation.y = 0;
     }
   }
 
@@ -188,11 +192,7 @@ export class Player {
       d = Math.atan2(Math.sin(d), Math.cos(d));
       this.model.rotation.y += d * Math.min(1, dt * (mount ? 5 : 10));
     }
-    if (mount) {
-      const m = this.mountModels.get(mount.id)!;
-      animateMount(m, this.walkPhase, moving, time);
-      m.root.visible = true;
-    }
+    if (mount) this.mountModels.get(mount.id)!.animate(moving, dt, time);
     if (this.nymph.root.visible) {
       animateNymph(
         this.nymph,
@@ -202,7 +202,6 @@ export class Player {
           onGround: this.onGround,
           vy: this.vel.y,
           riding: mount ? mount.id : null,
-          mountPhase: this.walkPhase,
           work: this.workAnim,
           tool: this.tool,
         },
