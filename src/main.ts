@@ -222,19 +222,29 @@ function selectSlot(i: number) {
   renderHotbar();
 }
 
-function card(name: string, desc: string, label: string, enabled: boolean, onBuy: () => void) {
+/** Shop buttons and whether each can be bought now; re-checked every second while the shop is open. */
+let shopButtons: { button: HTMLButtonElement; can: () => boolean }[] = [];
+
+function card(name: string, desc: string, label: string, can: () => boolean, onBuy: () => void) {
   const el = document.createElement('div');
   el.className = 'card';
   el.innerHTML = `<div class="name">${name}</div><div class="desc">${desc}</div>`;
   const b = document.createElement('button');
   b.innerHTML = label;
-  b.disabled = !enabled;
+  b.disabled = !can();
   b.onclick = onBuy;
   el.appendChild(b);
+  shopButtons.push({ button: b, can });
   return el;
 }
 
+/** Light up anything that's become affordable (or dim what no longer is) without rebuilding the shop. */
+function refreshShopButtons() {
+  for (const { button, can } of shopButtons) button.disabled = !can();
+}
+
 function renderShop() {
+  shopButtons = [];
   $('shop-pollen').textContent = fmt(econ.pollen);
   $('shop-honey').textContent = fmt(econ.honey);
   const bought = (msg: string) => {
@@ -250,14 +260,20 @@ function renderShop() {
     if (t.cost === 0) continue;
     const owned = econ.tools.has(t.id);
     tools.appendChild(
-      card(t.name, t.blurb, owned ? 'Owned' : `✿ ${fmt(t.cost)}`, !owned && econ.pollen >= t.cost, () => {
-        if (econ.buyTool(t)) {
-          econ.riding = null;
-          player.ride(null);
-          player.setTool(t.id);
-          bought(`${t.name} acquired!`);
-        }
-      }),
+      card(
+        t.name,
+        t.blurb,
+        owned ? 'Owned' : `✿ ${fmt(t.cost)}`,
+        () => !owned && econ.pollen >= t.cost,
+        () => {
+          if (econ.buyTool(t)) {
+            econ.riding = null;
+            player.ride(null);
+            player.setTool(t.id);
+            bought(`${t.name} acquired!`);
+          }
+        },
+      ),
     );
   }
 
@@ -269,9 +285,15 @@ function renderShop() {
     const desc = `${m.blurb}<br>Plants a ${m.radius * 2}m circle · carries ${fmt(econ.mountCap(m))} seeds`;
     const label = owned ? 'Owned' : needs ? `Requires ${econ.nameOf(m.requires)}` : `✿ ${fmt(m.cost)}`;
     mounts.appendChild(
-      card(m.name, desc, label, !owned && !needs && econ.pollen >= m.cost, () => {
-        if (econ.buyMount(m)) bought(`${m.name} joined you! Press ${TOOLS.length + i + 1} to ride.`);
-      }),
+      card(
+        m.name,
+        desc,
+        label,
+        () => !owned && !needs && econ.pollen >= m.cost,
+        () => {
+          if (econ.buyMount(m)) bought(`${m.name} joined you! Press ${TOOLS.length + i + 1} to ride.`);
+        },
+      ),
     );
   });
 
@@ -285,7 +307,7 @@ function renderShop() {
         `Hire a Bear <span class="desc">${econ.bears} working</span>`,
         `Bears carry honey from your hives back to their den. Each carries ${econ.bearCarry}. New bears move into the den with the most hives per bear.`,
         needs ? 'Build a Beehive first (H)' : `✿ ${fmt(cost)}`,
-        !needs && econ.pollen >= cost,
+        () => !needs && econ.pollen >= cost,
         () => {
           if (econ.pollen < econ.bearCost) return;
           econ.pollen -= econ.bearCost;
@@ -315,13 +337,19 @@ function renderShop() {
       if (maxed) label = u.max === 1 ? 'Owned' : 'Maxed';
       else if (needs) label = `Requires ${econ.nameOf(u.requires!)}`;
       box.appendChild(
-        card(name, u.blurb(lvl), label, !maxed && !needs && econ.wallet(u.currency) >= cost, () => {
-          if (econ.buyUpgrade(u)) {
-            if (u.id === 'family') stations.syncSquirrels();
-            if (u.id === 'flock') fairies.syncFairies();
-            bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`);
-          }
-        }),
+        card(
+          name,
+          u.blurb(lvl),
+          label,
+          () => !maxed && !needs && econ.wallet(u.currency) >= cost,
+          () => {
+            if (econ.buyUpgrade(u)) {
+              if (u.id === 'family') stations.syncSquirrels();
+              if (u.id === 'flock') fairies.syncFairies();
+              bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`);
+            }
+          },
+        ),
       );
     }
   }
@@ -335,7 +363,7 @@ function renderShop() {
       `Wayfarer Fairy <span class="desc">${econ.wayfarers} roaming</span>`,
       `No ring and no range: wanders the whole planet planting any bare ground no ring covers. Flies faster and carries twice as many seeds.`,
       needs ? 'Requires a Fairy Ring' : `${HONEY} ${fmt(cost)}`,
-      !needs && econ.honey >= cost,
+      () => !needs && econ.honey >= cost,
       () => {
         if (econ.honey < econ.wayfarerCost) return;
         econ.honey -= econ.wayfarerCost;
@@ -1004,6 +1032,7 @@ addEventListener('beforeunload', saveNow);
 const clock = new THREE.Clock();
 let saveTimer = 0;
 let hudTimer = 0;
+let shopTimer = 0;
 let wasFull = true;
 renderHotbar();
 
@@ -1165,6 +1194,11 @@ function frame() {
     if (menuOpen) {
       $('shop-pollen').textContent = fmt(econ.pollen);
       $('shop-honey').textContent = fmt(econ.honey);
+    }
+    shopTimer -= 0.1;
+    if (menuKind === 'shop' && shopTimer <= 0) {
+      shopTimer = 1;
+      refreshShopButtons();
     }
   }
   perf.mark('hud');
