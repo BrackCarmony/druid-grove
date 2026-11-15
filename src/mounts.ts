@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { MountId } from './economy';
-import { bake, joint, lam, leafGeo, limb, mesh } from './rig';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { bake, joint, lam, leafGeo, limb, mesh, plain } from './rig';
 
 // The mounts: jointed models with procedural gaits. Both face +z. The rider is parented to
 // `back`, so she rocks and bobs with the animal's stride.
@@ -13,6 +14,8 @@ export interface MountModel {
   /** This frame's gait, for the rider to move with: stride phase, walk/gallop blends, and
    * how the body is bobbing (m) and pitching (radians, + = nose down). */
   gait: Gait;
+  /** Show or hide cosmetic armor (only the stag has any). */
+  setArmor?(on: boolean): void;
 }
 
 export interface Gait {
@@ -579,6 +582,124 @@ function stag(): MountModel {
   ell(0.06, 0.13, 0.035, C.coat, tail, 8).position.set(0, 0.1, 0);
   ell(0.055, 0.12, 0.03, C.pale, tail, 8).position.set(0, 0.1, 0.02);
 
+  // Horse Armor (sold separately): gilded leaf-blade barding. Overlapping blades hang over the
+  // shoulders and haunches, leaf scales run down the neck, and a mask covers the face. Purely
+  // cosmetic. Each joint's plates are merged into one mesh per metal (kept out of the bake so
+  // they can be shown or hidden).
+  const gilt = new THREE.MeshPhongMaterial({
+    color: 0xe2d474,
+    emissive: 0x2a2608,
+    specular: 0xfff4b0,
+    shininess: 70,
+    side: DS,
+  });
+  const giltDark = new THREE.MeshPhongMaterial({
+    color: 0xb8ae4c,
+    emissive: 0x1a1804,
+    specular: 0xf0e6a0,
+    shininess: 50,
+    side: DS,
+  });
+  const armorGeos = new Map<THREE.Object3D, Map<THREE.Material, THREE.BufferGeometry[]>>();
+  const dummy = new THREE.Object3D();
+  dummy.rotation.order = 'YXZ';
+  /** Place a plate on a joint: yaw faces it outward, pitch tips it (π hangs a leaf tip-down). */
+  const plateAt = (
+    parent: THREE.Object3D,
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+    yaw: number,
+    pitch: number,
+  ) => {
+    dummy.position.set(x, y, z);
+    dummy.rotation.set(pitch, yaw, 0);
+    dummy.updateMatrix();
+    const byMat = armorGeos.get(parent) ?? new Map<THREE.Material, THREE.BufferGeometry[]>();
+    armorGeos.set(parent, byMat);
+    const list = byMat.get(mat) ?? [];
+    byMat.set(mat, list);
+    list.push(plain(geo.clone()).applyMatrix4(dummy.matrix));
+  };
+  /** A ring of blades hanging round an elliptical body part (θ = 0 is +z, π/2 is +x). */
+  const skirt = (
+    parent: THREE.Object3D,
+    cx: number,
+    cz: number,
+    rx: number,
+    rz: number,
+    from: number,
+    to: number,
+    rows: [y: number, n: number, w: number, l: number][],
+  ) => {
+    rows.forEach(([y, n, w, l], row) => {
+      const blade = leafGeo(w, l, 0.5);
+      for (let k = 0; k < n; k++) {
+        const th = from + ((to - from) * (k + (row % 2) * 0.5)) / (n - 1 + (row % 2));
+        const out = 1 + row * 0.05; // lower rows sit over the upper ones' tips
+        plateAt(
+          parent,
+          blade,
+          (k + row) % 2 ? giltDark : gilt,
+          cx + Math.sin(th) * rx * out,
+          y,
+          cz + Math.cos(th) * rz * out,
+          th,
+          Math.PI - 0.22 - row * 0.08,
+        );
+      }
+    });
+  };
+  // Haunches: round the sides and back (not where they meet the barrel).
+  skirt(torso, 0, -0.5, 0.27, 0.37, 1.15, Math.PI * 2 - 1.15, [
+    [0.32, 16, 0.19, 0.42],
+    [0.12, 16, 0.18, 0.38],
+    [-0.06, 14, 0.15, 0.3],
+  ]);
+  // Shoulders: round the front of the chest.
+  skirt(chestJ, 0, 0, 0.27, 0.41, -1.85, 1.85, [
+    [0.24, 14, 0.17, 0.38],
+    [0.04, 14, 0.16, 0.34],
+    [-0.13, 12, 0.14, 0.28],
+  ]);
+  // Leaf scales down the top and sides of the neck, tips toward the body.
+  const scale = leafGeo(0.075, 0.12, 0.5);
+  for (let k = 0; k < 7; k++) {
+    const y = 0.68 - k * 0.095;
+    const r = 0.1 + (0.06 * (0.74 - y)) / 0.74 + 0.015;
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const th = Math.PI - 1.45 + (2.9 * (i + (k % 2) * 0.5)) / n;
+      plateAt(neck, scale, (i + k) % 2 ? gilt : giltDark, Math.sin(th) * r, y, Math.cos(th) * r, th, Math.PI - 0.35);
+    }
+  }
+  // Mask: a gilt shell down the face with a crest of small leaves along the nose.
+  {
+    const g = new THREE.CylinderGeometry(1, 1, 0.36, 18, 1, true, Math.PI - 1.3, 2.6);
+    g.rotateX(Math.PI / 2);
+    g.scale(0.105, 0.09, 1);
+    plateAt(head, g, gilt, 0, 0.005, 0.17, 0, 0);
+    const crest = leafGeo(0.06, 0.13, 0.5);
+    for (let k = 0; k < 4; k++)
+      plateAt(head, crest, k % 2 ? giltDark : gilt, 0, 0.1 - k * 0.012, 0.08 + k * 0.075, 0, 1.25);
+    for (const sd of [-1, 1]) {
+      // cheek plates sweeping back under the eyes
+      const cheek = leafGeo(0.07, 0.16, 0.5);
+      plateAt(head, cheek, giltDark, sd * 0.1, -0.03, 0.14, sd * 1.3 + Math.PI, Math.PI / 2 + 0.2);
+    }
+  }
+  const armor: THREE.Mesh[] = [];
+  for (const [parent, byMat] of armorGeos)
+    for (const [mat, geos] of byMat) {
+      const m = new THREE.Mesh(mergeGeometries(geos)!, mat);
+      m.userData.keep = true;
+      m.visible = false;
+      parent.add(m);
+      armor.push(m);
+    }
+
   // Stand the hooves on the ground.
   root.updateMatrixWorld(true);
   const v = new THREE.Vector3();
@@ -603,6 +724,9 @@ function stag(): MountModel {
     root,
     back,
     gait,
+    setArmor(on) {
+      for (const m of armor) m.visible = on;
+    },
     animate(speed, dt, time) {
       const move = clamp01(speed / 2.5);
       const g = clamp01((speed - 8.5) / 3); // gallop blend

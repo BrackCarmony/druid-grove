@@ -101,7 +101,7 @@ export const SOILS: Record<number, SoilDef> = {
   [Soil.Stone]: { hardness: 8, yield: 22, unlock: 'moss' },
 };
 
-export type UpgradeGroup = 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies';
+export type UpgradeGroup = 'mounts' | 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies';
 export type Currency = 'pollen' | 'honey';
 
 export interface UpgradeDef {
@@ -117,6 +117,17 @@ export interface UpgradeDef {
 }
 
 export const UPGRADES: UpgradeDef[] = [
+  {
+    id: 'armor',
+    group: 'mounts',
+    name: 'Horse Armor',
+    blurb: () =>
+      'Gilded leaf-blade barding for your Bramble Stag. Purely cosmetic: it does absolutely nothing. Worth every grain of pollen.',
+    baseCost: 100_000_000,
+    growth: 1,
+    max: 1,
+    requires: 'stag',
+  },
   {
     id: 'fingers',
     group: 'planting',

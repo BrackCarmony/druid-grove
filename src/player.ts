@@ -134,6 +134,13 @@ export class Player {
     this.tool = id;
   }
 
+  private armor = false;
+  /** The stag's Horse Armor, on or off (it shows whenever she rides the stag). */
+  setArmor(on: boolean) {
+    this.armor = on;
+    for (const m of this.mountModels.values()) m.setArmor?.(on);
+  }
+
   ride(def: MountDef | null) {
     this.mount = def;
     for (const m of this.mountModels.values()) m.root.visible = false;
@@ -142,6 +149,7 @@ export class Player {
       let m = this.mountModels.get(def.id);
       if (!m) {
         m = buildMount(def.id);
+        m.setArmor?.(this.armor);
         this.mountModels.set(def.id, m);
         this.mountHolder.add(m.root);
       }

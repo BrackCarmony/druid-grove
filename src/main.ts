@@ -22,6 +22,7 @@ import { onSettings, settings, updateSettings, VIEW_SCALE, ViewDistance } from '
 import { deleteSlot, lastSlot, setLastSlot, SLOT_COUNT, slotInfo, slotKey } from './slots';
 import { planetizeTree, planetUniforms } from './planet';
 import { Waystone, Waystones } from './waystones';
+import { SPECIES, Wildlife } from './wildlife';
 import { FairyRings, Ring } from './fairies';
 import { Chimes, Particles, Song } from './fx';
 import { Flowers } from './flowers';
@@ -157,6 +158,17 @@ scene.add(stations.group);
 // ---------- HUD ----------
 let toastTimer = 0;
 let pollenPulse = false;
+let newsTimer = 0;
+/** A line of news under the toasts (wildlife returning), with a soft chime. */
+function news(msg: string) {
+  const el = $('news');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(newsTimer);
+  newsTimer = window.setTimeout(() => el.classList.remove('show'), 7000);
+  chimes.shop('planting');
+}
+
 function toast(msg: string, big = false) {
   const el = $('toast');
   el.innerHTML = msg; // our own strings; may contain icon markup
@@ -177,6 +189,9 @@ const apiary = new Apiary(world, econ, colliders);
 scene.add(apiary.group);
 const fairies = new FairyRings(world, econ, garden, stations, particles);
 scene.add(fairies.group);
+// Animals come back as the planet recovers (fewer on phones).
+const wildlife = new Wildlife(world, TOUCH ? 0.6 : 1);
+scene.add(wildlife.group);
 const waystones = new Waystones(world, colliders);
 scene.add(waystones.group);
 // The shop: a great stone obelisk near home, and any more raised out in the world.
@@ -263,7 +278,9 @@ function loadSlot(i: number) {
   apiary.syncBears(extra?.bearHomes);
   fairies.syncFairies(); // wayfarers
   flowers.reset(); // chunks streamed in behind the home screen predate the save
+  wildlife.reset(Wildlife.stageAt(planetProgress().pct)); // the ones already back don't announce again
   player.setTool(econ.current);
+  player.setArmor(econ.level('armor') > 0);
   player.ride(econ.mount);
   renderHotbar();
 }
@@ -493,10 +510,10 @@ function renderShop() {
     );
   }
 
-  const groups: UpgradeGroup[] = ['planting', 'seeds', 'squirrels', 'soil', 'hives', 'fairies'];
+  const groups: UpgradeGroup[] = ['mounts', 'planting', 'seeds', 'squirrels', 'soil', 'hives', 'fairies'];
   for (const grp of groups) {
     const box = $(`shop-${grp}`);
-    if (grp !== 'hives') box.innerHTML = '';
+    if (grp !== 'hives' && grp !== 'mounts') box.innerHTML = ''; // (those already hold other cards)
     for (const u of UPGRADES.filter((x) => x.group === grp)) {
       const lvl = econ.level(u.id);
       const maxed = lvl >= u.max;
@@ -517,6 +534,10 @@ function renderShop() {
             if (econ.buyUpgrade(u)) {
               if (u.id === 'family') stations.syncSquirrels();
               if (u.id === 'flock') fairies.syncFairies();
+              if (u.id === 'armor') {
+                player.setArmor(true);
+                return bought('Horse Armor equipped. The Bramble Stag is not a horse, but it looks magnificent.', grp);
+              }
               bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`, grp);
             }
           },
@@ -1809,6 +1830,8 @@ function present(dt: number) {
   perf.mark('worldFlush');
   flowers.update(camera, time);
   perf.mark('flowers');
+  wildlife.update(dt, time, player.pos, !!econ.riding);
+  perf.mark('wildlife');
 
   // HUD (throttled)
   hudTimer -= dt;
@@ -1849,6 +1872,12 @@ function present(dt: number) {
       const p = planetProgress();
       const pctText = p.pct >= 99.95 ? '100' : p.pct < 10 ? p.pct.toFixed(2) : p.pct.toFixed(1);
       $('planet-pct').innerHTML = `Planet <b>${pctText}%</b> restored · ${p.done} / ${realGlades} glades`;
+      // Another kind of animal comes back.
+      const stage = Wildlife.stageAt(p.pct);
+      if (started && stage > wildlife.stage) {
+        wildlife.stage = stage;
+        news(SPECIES[stage - 1].news);
+      }
       if (pctText === '100' && !moonRestored && started && !ending.active) {
         moonRestored = true;
         saveNow();
@@ -1914,6 +1943,7 @@ frame();
   get challenges() {
     return challenges;
   },
+  wildlife,
   terrain,
   scenery,
   buildDen,

@@ -183,6 +183,25 @@ body {
 #toast.show {
   opacity: 1;
 }
+/* Wildlife coming back: its own line under the toasts, so glade fanfares can't bury it. */
+#news {
+  position: absolute;
+  left: 50%;
+  top: 31%;
+  transform: translateX(-50%);
+  font-size: 22px;
+  font-style: italic;
+  color: #f4e7b8;
+  text-align: center;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  transition: opacity 1.2s;
+  max-width: 90vw;
+  pointer-events: none;
+}
+#news.show {
+  opacity: 1;
+}
 #toast.big {
   font-size: 30px;
   color: var(--leaf);
@@ -1198,6 +1217,10 @@ body.touch #pollen-box {
   }
   #toast.big {
     font-size: 22px;
+  }
+  #news {
+    font-size: 16px;
+    top: 40%;
   }
   #hint {
     font-size: 13px;

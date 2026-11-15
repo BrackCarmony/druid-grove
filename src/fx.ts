@@ -351,8 +351,13 @@ export class Chimes {
   }
 
   /** Something bought at the obelisk: each part of the shop has its own little sound. */
-  shop(kind: 'tool' | 'mount' | 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies') {
+  shop(kind: 'tool' | 'mount' | 'mounts' | 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies') {
     switch (kind) {
+      case 'mounts': // armor: a clank of plate, then the till rings
+        this.hit(2600, 'bandpass', 1.2, 0.12, 0, 9);
+        this.hit(1800, 'bandpass', 1.0, 0.16, 0.08, 9);
+        setTimeout(() => this.seq([24, 31], 70, 0.6, 0.15, 'triangle'), 260);
+        break;
       case 'tool': // a wooden knock, then a bright ring
         this.hit(900, 'bandpass', 1.4, 0.08, 0, 4);
         this.hit(600, 'bandpass', 1.0, 0.1, 0.09, 4);

@@ -299,6 +299,7 @@ export class Bot {
         add({ kind: 'shop', name: m.name, cost: m.cost, currency: 'pollen' }, 0.25);
     for (const u of UPGRADES) {
       if (e.level(u.id) >= u.max || (u.requires && !e.has(u.requires))) continue;
+      if (u.id === 'armor') continue; // cosmetic
       let w = MILESTONES.has(u.id) ? 0.25 : 1;
       // Hand-only upgrades stop mattering once she rides everywhere.
       if (mounted && (u.id === 'reach' || u.id === 'satchel')) continue;
