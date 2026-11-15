@@ -16,8 +16,9 @@ export const ZOOM_MIN = 0;
 export const ZOOM_MAX = 320;
 /** Zooms a single scroll gesture catches on: just over the shoulder, and the high overview. */
 export const ZOOM_STOPS = [4, 60];
-/** Milliseconds without a wheel event that end a zoom gesture. */
-const GESTURE_GAP = 220;
+/** Milliseconds without a wheel event that end a zoom gesture (a mouse wheel spun in one go
+ * clicks faster than this; a second, deliberate scroll comes after a slightly longer pause). */
+const GESTURE_GAP = 110;
 
 export class Player {
   pos = new THREE.Vector3(0, 0, 4);
@@ -28,6 +29,7 @@ export class Player {
   zoomTarget = 0;
   private lastWheel = 0;
   private heldDir = 0;
+  private lastDelta = 0; // size of the last wheel step, to tell a new flick from coasting
   onGround = true;
   keys = new Set<string>();
   /** Touch stick: x right, y forward, length 0..1. */
@@ -79,8 +81,13 @@ export class Player {
     const dir = Math.sign(dy);
     // A pause in the wheel (or a change of direction) starts a new zoom gesture, which may carry
     // on past the stop the last one caught on.
-    if (now - this.lastWheel > GESTURE_GAP || dir !== this.heldDir) this.heldDir = 0;
+    // Trackpads keep sending ever-smaller steps as a flick coasts to a stop, with no pause; a
+    // fresh flick during that shows up as a step that jumps back up in size.
+    const size = Math.abs(dy);
+    const freshFlick = size > 8 && size > this.lastDelta * 1.8;
+    if (now - this.lastWheel > GESTURE_GAP || dir !== this.heldDir || freshFlick) this.heldDir = 0;
     this.lastWheel = now;
+    this.lastDelta = size;
     if (this.heldDir) return;
     // Exponential-feeling zoom so small scrolls near the nymph are fine-grained.
     const z = this.zoomTarget;
