@@ -1287,7 +1287,17 @@ addEventListener('visibilitychange', () => {
   }
 });
 for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back'))
-  b.onclick = () => (menuKind === 'pause' ? showPauseMain() : showHome('main'));
+  b.onclick = () => {
+    if (firstWorld !== null && b.closest('#home-look')) {
+      // Character made: on into the first world.
+      const i = firstWorld;
+      lookPreview.stop();
+      b.textContent = 'Done';
+      return startGame(i);
+    }
+    if (menuKind === 'pause') showPauseMain();
+    else showHome('main');
+  };
 
 // ---------- in-game menu (Esc) ----------
 function showPauseMain() {
@@ -1369,8 +1379,20 @@ function playEnding() {
   ending.play(() => toast(`The moon is whole again. Thank you, little ${BODY_NAMES[look.body].toLowerCase()}.`));
 }
 
+/** A brand-new player's first world waits here while they make their character. */
+let firstWorld: number | null = null;
+
 function startGame(i: number) {
   if (started) return;
+  // The very first world (no worlds at all yet) starts with making your character; later
+  // worlds go straight in (the look can be changed from Customize on the home screen).
+  if (firstWorld === null && [...Array(SLOT_COUNT).keys()].every((k) => !slotInfo(k))) {
+    firstWorld = i;
+    showHome('look');
+    $('home-look').querySelector('.back')!.textContent = 'Start playing';
+    return;
+  }
+  firstWorld = null;
   setLastSlot(i);
   loadSlot(i);
   started = true;
