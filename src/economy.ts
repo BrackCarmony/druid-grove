@@ -598,6 +598,8 @@ export class Economy {
     this.spend(cur, cost);
     this.levels[u.id] = this.level(u.id) + 1;
     if (u.id === 'satchel') this.seeds = this.seedCap;
+    // Bigger saddlebags come filled, like a bigger satchel (for every mount owned).
+    if (u.id === 'saddlebags') for (const m of this.ownedMounts) this.mountSeeds[m.id] = this.mountCap(m);
     return true;
   }
 }
