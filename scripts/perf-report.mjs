@@ -193,7 +193,7 @@ table(
 console.log('BY DEVICE');
 const byGpu = new Map();
 for (const w of wins) {
-  const key = `${w.device ?? '?'} @${w.w}x${w.h}x${w.dpr}`;
+  const key = `${w.device ?? '?'} @${w.w}x${w.h}x${w.dpr}${w.touch ? ' touch' : ''}`;
   byGpu.set(key, [...(byGpu.get(key) ?? []), w]);
 }
 table(

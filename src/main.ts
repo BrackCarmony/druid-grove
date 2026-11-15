@@ -1170,6 +1170,26 @@ for (const b of gridButtons) {
   };
 }
 renderGrid();
+{
+  const input = $<HTMLInputElement>('set-look');
+  const out = $('set-look-v');
+  input.value = String(Math.round(settings.lookSpeed * 100));
+  out.textContent = `${input.value}%`;
+  input.oninput = () => {
+    out.textContent = `${input.value}%`;
+    updateSettings({ lookSpeed: Number(input.value) / 100 });
+  };
+  const invertButtons = [...$('set-invert').querySelectorAll<HTMLButtonElement>('button')];
+  const renderInvert = () => {
+    for (const b of invertButtons) b.classList.toggle('on', (b.dataset.v === 'on') === settings.invertY);
+  };
+  for (const b of invertButtons)
+    b.onclick = () => {
+      updateSettings({ invertY: b.dataset.v === 'on' });
+      renderInvert();
+    };
+  renderInvert();
+}
 onSettings((s) => (cursorUniforms.uCursorGrid.value = s.grid ? 1 : 0));
 
 function playEnding() {

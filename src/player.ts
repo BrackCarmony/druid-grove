@@ -3,6 +3,7 @@ import { Colliders } from './colliders';
 import type { MountDef, MountId, ToolId } from './economy';
 import { buildMount, MountModel } from './mounts';
 import { Look, look } from './look';
+import { settings } from './settings';
 import { animateNymph, buildNymph, NymphRig, setNymphTool } from './nymph';
 import { World, wrap } from './world';
 
@@ -66,8 +67,9 @@ export class Player {
   }
 
   look(dx: number, dy: number) {
-    this.yaw -= dx * 0.0022;
-    this.pitch -= dy * 0.0022;
+    const k = 0.0022 * settings.lookSpeed;
+    this.yaw -= dx * k;
+    this.pitch -= dy * k * (settings.invertY ? -1 : 1);
     this.pitch = THREE.MathUtils.clamp(this.pitch, -1.5, 1.2);
   }
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { wantsTouch } from './touch';
 
 // Lightweight frame profiler.
 // The main loop calls begin() at the top of each frame, mark('name') after each chunk of
@@ -98,6 +99,7 @@ export class Perf {
       cores: navigator.hardwareConcurrency ?? 0,
       mem: (navigator as { deviceMemory?: number }).deviceMemory ?? 0,
       // A dev server started before vite.config.ts existed won't define it.
+      touch: wantsTouch() ? 1 : 0, // playing with the touch controls
       build: typeof __BUILD__ === 'undefined' ? 'dev' : __BUILD__,
     };
     const q = new URLSearchParams(location.search).get('perf');
