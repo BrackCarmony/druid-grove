@@ -613,6 +613,65 @@ button.remove {
   color: #fff;
 }
 
+/* Home screen: cloud save */
+#cloud-line {
+  margin: 10px 0 0;
+  color: var(--ink-dim);
+}
+#cloud-line.warn {
+  color: var(--accent);
+}
+.cloud-link {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cloud-link input {
+  flex: 1;
+  min-width: 180px;
+  font: inherit;
+  font-size: 18px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--ink);
+}
+.cloud-code-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cloud-code {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--leaf);
+  user-select: all;
+  -webkit-user-select: all;
+}
+.cloud-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.cloud-error {
+  color: var(--bad);
+  min-height: 1em;
+}
+#cloud-unlink.armed {
+  background: #c0504a;
+  color: #fff;
+}
+#cloud-create:disabled,
+#cloud-link:disabled {
+  opacity: 0.6;
+}
+
 /* Home screen: settings and credits */
 .home-links {
   display: flex;

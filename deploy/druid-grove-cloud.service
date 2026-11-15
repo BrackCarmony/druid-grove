@@ -1,0 +1,21 @@
+# Druid Grove cloud saves (deploy/cloud-server.py), behind nginx at /api/cloud/.
+# Installed to /etc/systemd/system/ by scripts/setup-cloud-server.sh.
+[Unit]
+Description=Druid Grove cloud saves
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /srv/druid-grove/cloud/cloud-server.py
+# Runs as a throwaway user that can only write its own state folder.
+DynamicUser=yes
+StateDirectory=druid-grove-cloud
+Environment=CLOUD_DIR=/var/lib/druid-grove-cloud CLOUD_PORT=8100
+Restart=on-failure
+MemoryMax=128M
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

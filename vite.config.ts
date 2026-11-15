@@ -8,4 +8,6 @@ try {
 
 export default defineConfig({
   define: { __BUILD__: JSON.stringify(build) },
+  // Cloud saves in dev: run deploy/cloud-server.py with CLOUD_PORT=8111 (see the README).
+  server: { proxy: { '/api/cloud': 'http://127.0.0.1:8111' } },
 });

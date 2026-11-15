@@ -121,3 +121,15 @@ The music plays as a playlist: each song plays its loop twice, then a short paus
 - Engine: [three.js](https://threejs.org), MIT License.
 
 The in-game credits page (home screen → Credits) lists the same.
+
+## Cloud saves
+
+Players can turn on **Cloud save** on the home screen: they get a private 12-character code, and
+their worlds sync to the droplet (newer copy of each world wins; the server keeps the version
+before each overwrite and any deleted world). No accounts, and no IP addresses are logged.
+
+- Server: `deploy/cloud-server.py` (Python standard library only), run by systemd as
+  `druid-grove-cloud` on 127.0.0.1:8100, behind nginx at `/api/cloud/`. Data lives in
+  `/var/lib/druid-grove-cloud`, one folder per code (named by the code's SHA-256).
+- Install or update it: `./scripts/setup-cloud-server.sh`.
+- In dev, run `CLOUD_PORT=8111 CLOUD_DIR=/tmp/dg-cloud python3 deploy/cloud-server.py`; Vite proxies `/api/cloud` to it.

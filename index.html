@@ -183,8 +183,10 @@
             Hollow or any waystone you have raised.
           </p>
           <div id="slots"></div>
+          <p class="small" id="cloud-line"></p>
           <div class="home-links">
             <button class="link" id="open-look">Customize</button>
+            <button class="link" id="open-cloud">Cloud save</button>
             <button class="link" id="open-settings">Settings</button>
             <button class="link" id="open-credits">Credits</button>
           </div>
@@ -202,6 +204,49 @@
           </div>
           <p class="small">Drag the preview to turn around. Your look is shared by all your worlds.</p>
           <button class="back">Done</button>
+        </div>
+
+        <div id="home-cloud" class="home-panel hidden">
+          <h2>Cloud save</h2>
+          <div id="cloud-off">
+            <p>
+              Keep your worlds on the game's server, so they're safe if this browser's data is cleared, and carry on
+              from another phone, tablet or computer.
+            </p>
+            <p class="small dim">
+              No account needed: you get a code. Anyone with the code can open your worlds, so keep it to yourself.
+            </p>
+            <button id="cloud-create">Turn on cloud save</button>
+            <h3>Already have a code?</h3>
+            <div class="cloud-link">
+              <input
+                id="cloud-code-in"
+                placeholder="ABCD-EFGH-JKMN"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+              />
+              <button id="cloud-link">Link this device</button>
+            </div>
+            <p class="small dim">Worlds in the cloud replace the ones on this device in the same slots.</p>
+          </div>
+          <div id="cloud-on" class="hidden">
+            <p class="small dim">Your cloud save code</p>
+            <div class="cloud-code-row">
+              <div class="cloud-code" id="cloud-code"></div>
+              <button class="link" id="cloud-copy">Copy</button>
+            </div>
+            <p class="small">
+              Write it down somewhere safe. To play on another device, open Cloud save there and enter this code.
+            </p>
+            <p class="small dim" id="cloud-status"></p>
+            <div class="cloud-buttons">
+              <button class="link" id="cloud-sync">Sync now</button>
+              <button class="link" id="cloud-unlink">Stop syncing on this device</button>
+            </div>
+          </div>
+          <p class="small cloud-error" id="cloud-error"></p>
+          <button class="back">Back</button>
         </div>
 
         <div id="home-settings" class="home-panel hidden">

@@ -27,6 +27,7 @@ import { Flowers } from './flowers';
 import { COMPLETE_AT, Garden } from './garden';
 import { Player } from './player';
 import { TouchControls, wantsTouch } from './touch';
+import { Cloud } from './cloud';
 import { DeadScenery, HeartTrees } from './props';
 import { createSky, restoreMoon } from './sky';
 import { Ending } from './ending';
@@ -43,6 +44,9 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 /** Playing with touch controls (phones, tablets). Words for keys say what to tap instead. */
 const TOUCH = wantsTouch();
 const say = (keys: string, touch: string) => (TOUCH ? touch : keys);
+
+/** Worlds copied to the server (see cloud.ts); off until the player turns it on. */
+const cloud = new Cloud();
 
 // ---------- scene ----------
 const canvas = $<HTMLCanvasElement>('game');
@@ -910,6 +914,7 @@ function saveNow() {
     moonRestored,
   };
   garden.save(player, extra);
+  cloud.saved(activeSlot);
 }
 
 // ---------- home screen: save slots ----------
@@ -956,6 +961,8 @@ function renderSlots() {
     go.className = 'save-slot-play';
     go.textContent = info ? 'Continue' : 'New world';
     go.onclick = () => startGame(i);
+    // Hold off while the cloud may be about to bring a newer copy of this world.
+    go.disabled = cloud.state === 'syncing';
     row.append(text, go);
     if (info) {
       const del = document.createElement('button');
@@ -977,6 +984,7 @@ function renderSlots() {
         }
         clearTimeout(timer);
         deleteSlot(i);
+        cloud.deleted(i);
         renderSlots();
       };
       row.append(del);
@@ -1025,7 +1033,9 @@ const startMusic = () => {
 addEventListener('pointerdown', startMusic);
 addEventListener('keydown', startMusic);
 
-function showHome(panel: 'main' | 'settings' | 'credits' | 'look') {
+function showHome(panel: 'main' | 'settings' | 'credits' | 'look' | 'cloud') {
+  $('home-cloud').classList.toggle('hidden', panel !== 'cloud');
+  if (panel === 'cloud') renderCloud();
   $('home-main').classList.toggle('hidden', panel !== 'main');
   $('home-settings').classList.toggle('hidden', panel !== 'settings');
   $('home-credits').classList.toggle('hidden', panel !== 'credits');
@@ -1116,6 +1126,80 @@ function renderLookOpts() {
   choices('On the back', 'back', BACK_NAMES);
 }
 $('open-credits').onclick = () => showHome('credits');
+$('open-cloud').onclick = () => showHome('cloud');
+
+// ---------- cloud save ----------
+function renderCloud() {
+  const on = cloud.on;
+  $('cloud-off').classList.toggle('hidden', on);
+  $('cloud-on').classList.toggle('hidden', !on);
+  $('cloud-code').textContent = cloud.code ?? '';
+  const busy = cloud.state === 'syncing';
+  for (const id of ['cloud-create', 'cloud-link', 'cloud-sync']) $<HTMLButtonElement>(id).disabled = busy;
+  $('cloud-status').textContent = busy
+    ? 'Syncing…'
+    : cloud.lastSync
+      ? `Last synced ${ago(cloud.lastSync)}. Worlds upload every 30 seconds while you play.`
+      : '';
+  $('cloud-error').textContent = cloud.error; // also a bad code typed while it's off
+  // The line under the worlds on the home screen.
+  const line = $('cloud-line');
+  line.classList.toggle('warn', !on);
+  line.textContent = !on
+    ? 'Worlds are saved in this browser only. Turn on Cloud save to keep them safe.'
+    : busy
+      ? '☁ Syncing with the cloud…'
+      : cloud.state === 'error'
+        ? `☁ Cloud save: ${cloud.error}`
+        : `☁ Cloud save on · synced ${ago(cloud.lastSync)}`;
+}
+cloud.onChange = () => {
+  renderCloud();
+  if (!started) renderSlots();
+};
+$('cloud-create').onclick = () => cloud.create().catch(() => {});
+$('cloud-link').onclick = () =>
+  cloud
+    .link($<HTMLInputElement>('cloud-code-in').value)
+    .then(() => ($<HTMLInputElement>('cloud-code-in').value = ''))
+    .catch(() => {});
+$('cloud-sync').onclick = () => cloud.sync().catch(() => {});
+$('cloud-copy').onclick = () => {
+  navigator.clipboard?.writeText(cloud.code ?? '').then(
+    () => ($('cloud-copy').textContent = 'Copied'),
+    () => {},
+  );
+  setTimeout(() => ($('cloud-copy').textContent = 'Copy'), 2000);
+};
+{
+  const b = $('cloud-unlink');
+  let armed = 0;
+  b.onclick = () => {
+    if (!armed) {
+      b.classList.add('armed');
+      b.textContent = 'Stop syncing? (worlds stay saved)';
+      armed = window.setTimeout(() => {
+        armed = 0;
+        b.classList.remove('armed');
+        b.textContent = 'Stop syncing on this device';
+      }, 3000);
+      return;
+    }
+    clearTimeout(armed);
+    armed = 0;
+    b.classList.remove('armed');
+    b.textContent = 'Stop syncing on this device';
+    cloud.unlink();
+  };
+}
+renderCloud();
+cloud.sync().catch(() => {}); // pick up anything played on another device
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && started) {
+    saveNow();
+    void cloud.tick(true);
+  }
+});
 for (const b of document.querySelectorAll<HTMLButtonElement>('.home-panel .back'))
   b.onclick = () => (menuKind === 'pause' ? showPauseMain() : showHome('main'));
 
@@ -1220,9 +1304,11 @@ function startGame(i: number) {
 canvas.addEventListener('click', () => {
   if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
 });
-function goHome() {
+async function goHome() {
   saveNow();
   skipSave = true;
+  // Give the last upload a moment, but don't hang on a bad connection.
+  await Promise.race([cloud.tick(true), new Promise((r) => setTimeout(r, 5000))]);
   location.reload(); // back to the home screen (it shows on every load)
 }
 
@@ -1533,6 +1619,7 @@ function frame() {
   }
 
   if (started) playTime += dt;
+  void cloud.tick();
   saveTimer += dt;
   if (saveTimer > 10) {
     saveTimer = 0;
