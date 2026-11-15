@@ -650,7 +650,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   // --- target pose (rotations in radians) ---
   const legSwing = lerp(0.55, 0.8, run) * move;
   let hipY = HIP_Y + move * (Math.abs(cosP) * lerp(0.025, 0.06, run) - lerp(0.02, 0.05, run));
-  let hipRotY = sinP * 0.12 * move;
+  let hipRotY = -sinP * 0.12 * move; // the hip of the forward leg leads (she faces -z, left at -x)
   let hipRotZ = 0;
   let lean = -lerp(0.04, 0.26, run) * move;
   let pose = {
@@ -781,6 +781,11 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     }
   }
 
+  // The chest twists against the hips with each stride (the shoulder of the forward-swinging
+  // arm leads: the right one as the left leg steps), a little more at a run; the neck turns
+  // back so she keeps looking ahead.
+  const twist = sinP * lerp(0.17, 0.26, run) * move * (1 - air) * (1 - work);
+
   // --- apply, easing each joint toward its target ---
   const k = Math.min(1, dt * 16);
   const set = (o: THREE.Object3D, x: number, y: number, z: number) => {
@@ -790,9 +795,9 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   };
   rig.hips.position.y += (hipY - rig.hips.position.y) * Math.min(1, dt * 20);
   set(rig.hips, 0, hipRotY, hipRotZ);
-  set(rig.spine, lean, -hipRotY * 1.6, -hipRotZ * 1.5);
+  set(rig.spine, lean, -hipRotY + twist, -hipRotZ * 1.5);
   rig.spine.scale.set(1 + breathe * 0.008, 1 + breathe * 0.012, 1 + breathe * 0.012);
-  set(rig.neck, -lean * 0.4 + pose.headX * 0.4, pose.headY * 0.4 + hipRotY * 0.8, 0);
+  set(rig.neck, -lean * 0.4 + pose.headX * 0.4, pose.headY * 0.4 - twist * 0.85, 0);
   set(rig.head, pose.headX * 0.6 - lean * 0.2, pose.headY * 0.6, idle * Math.sin(time * 0.6) * 0.05);
   set(L.hip, pose.lHip, 0, pose.lHipZ);
   set(R.hip, pose.rHip, 0, pose.rHipZ);
