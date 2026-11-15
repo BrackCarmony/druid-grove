@@ -401,6 +401,7 @@ function renderShop() {
           econ.pollen -= econ.bearCost;
           econ.bears++;
           apiary.syncBears();
+          chimes.growl();
           const den = apiary.bears[apiary.bears.length - 1].den;
           bought(
             `A bear lumbers out of the ${den === apiary.home ? 'home den' : den.label.replace('Bear Den · ', 'den at ')}.`,

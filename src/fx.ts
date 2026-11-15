@@ -91,6 +91,8 @@ const PENTA = [0, 2, 4, 7, 9, 12, 14, 16];
 
 // "Breaking rock" from OpenGameArt (CC0).
 const ROCK_BREAK = `${import.meta.env.BASE_URL}sfx/rock-break.mp3`;
+// "Bear Growls" from OpenGameArt (CC0; recordings from the U.S. Fish & Wildlife Service).
+const GROWLS = [1, 2].map((n) => `${import.meta.env.BASE_URL}sfx/bear-growl-${n}.mp3`);
 const SFX_LEVEL = 0.22; // chimes at 100% effects volume
 const MUSIC_LEVEL = 0.55; // the track at 100% music volume
 const SONG_GAP = 4; // seconds of quiet between songs
@@ -115,6 +117,7 @@ export class Chimes {
   private sfxVol = 1;
   private musicVol = 0.5;
   private lastBloom = 0;
+  private growlUntil = 0; // AudioContext time the current growl ends
   private step = 0;
   muted = false;
 
@@ -152,8 +155,17 @@ export class Chimes {
     return p;
   }
 
+  /** A bear growls (hiring one). Buying more while it's still growling doesn't start another. */
+  growl() {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    if (ctx.currentTime < this.growlUntil) return;
+    this.growlUntil = ctx.currentTime + 1.3; // covers the decode, until the real end is known
+    this.play(GROWLS[Math.floor(Math.random() * GROWLS.length)], 1.6, 0.06, (end) => (this.growlUntil = end));
+  }
+
   /** Play a recorded effect through the effects volume, with a little pitch variation. */
-  private play(url: string, vol: number, spread = 0.1) {
+  private play(url: string, vol: number, spread = 0.1, onStart?: (endsAt: number) => void) {
     if (this.muted) return;
     const ctx = this.ensure();
     this.sample(url)
@@ -161,6 +173,7 @@ export class Chimes {
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.playbackRate.value = 1 + (Math.random() * 2 - 1) * spread;
+        onStart?.(ctx.currentTime + buf.duration / src.playbackRate.value);
         const g = ctx.createGain();
         g.gain.value = vol;
         src.connect(g).connect(this.master!);
