@@ -163,6 +163,8 @@ let brookTimer = 0;
 /** Water has run in some creek of this world (so the news is only told once). */
 let hadWater = false;
 const BROOK_EAR = 14; // metres a running creek can be heard from
+/** The synthesised brook is off until a recorded babbling-brook sound replaces it. */
+const BROOK_SOUND = false;
 
 /** How loud running water is where she stands: 1 beside a creek, fading to 0 at BROOK_EAR. */
 function brookLevel() {
@@ -1857,7 +1859,7 @@ function present(dt: number) {
   wildlife.update(dt, time, player.pos, !!econ.riding);
   perf.mark('wildlife');
   brookTimer -= dt;
-  if (brookTimer <= 0) {
+  if (BROOK_SOUND && brookTimer <= 0) {
     brookTimer = 0.25;
     chimes.setWater(started && !ending.active && !bot ? brookLevel() : 0);
   }
