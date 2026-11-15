@@ -68,8 +68,8 @@ export const MOUNTS: MountDef[] = [
     radius: 3.2,
     power: 2.6,
     seedCap: 800,
-    speed: 3.2,
-    runSpeed: 4.8,
+    speed: 4.2, // the same as walking and running on foot
+    runSpeed: 7.5,
     eye: 2.4,
     bodyRadius: 0.9,
   },

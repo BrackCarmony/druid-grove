@@ -312,7 +312,8 @@ function tortoise(): MountModel {
     gait,
     animate(speed, dt, time) {
       const move = clamp01(speed / 1.5);
-      phase += (speed / 1.3) * Math.PI * 2 * dt;
+      // Longer strides as it hurries, so the legs don't blur.
+      phase += (speed / (1.3 + speed * 0.12)) * Math.PI * 2 * dt;
       for (const L of legs) {
         const diag = L.front === L.side > 0 ? 0 : Math.PI;
         const ph = phase + diag;
