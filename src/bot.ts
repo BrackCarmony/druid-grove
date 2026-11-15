@@ -19,6 +19,10 @@ import { Glade, HALF, Soil, tileIndex, wdist, World, wrap } from './world';
 //   hours=N    stop after this much game time (default 12)
 //   seed=N     random seed for the bot's choices (default 1)
 //   travelzoom=0  don't zoom out to travel faster (a player who never zooms out)
+//   challenge=home,bears,rings  play by challenge rules (any mix):
+//              home   Home Sweet Home: never build a waystone
+//              bears  Lonely Bears: never hire a bear (the free ones still come)
+//              rings  Fairies are Forever: never remove a fairy ring
 // When it stops, the report goes to bot-runs/ (via the dev server) and to window.dgBot.report.
 
 export interface BotHost {
@@ -45,6 +49,8 @@ export interface BotHost {
   travel(st: Waystone): void;
   /** Take up the fairy rings with nothing left to do (refunding honey). Returns how many. */
   removeFinishedRings(): number;
+  /** The world's challenge flags (true = that challenge has been broken). */
+  challenges(): { waystone: boolean; bear: boolean; ringRemoved: boolean };
 }
 
 type BuildKind = 'cache' | 'hive' | 'ring' | 'waystone';
@@ -97,6 +103,7 @@ export interface BotReport {
   modes: Record<string, number>;
   stuck: number;
   travels?: number;
+  challenges?: { waystone: boolean; bear: boolean; ringRemoved: boolean };
 }
 
 const MILESTONES = new Set(['glove', 'rake', 'tortoise', 'worms', 'moss', 'stag']);
@@ -116,6 +123,8 @@ export class Bot {
   readonly speed: number;
   readonly hours: number;
   readonly travelZoom: boolean;
+  /** Challenge rules it plays by. */
+  readonly rules: Set<'home' | 'bears' | 'rings'>;
   fast = true;
   mode: Mode = 'idle';
   report: BotReport;
@@ -150,11 +159,22 @@ export class Bot {
     this.speed = Number(q.get('speed') ?? 60);
     this.hours = Number(q.get('hours') ?? 12);
     this.travelZoom = q.get('travelzoom') !== '0';
+    this.rules = new Set(
+      (q.get('challenge') ?? '')
+        .split(',')
+        .filter((r): r is 'home' | 'bears' | 'rings' => ['home', 'bears', 'rings'].includes(r)),
+    );
     const seed = Number(q.get('seed') ?? 1);
     this.rand = mulberry(seed);
     this.report = {
       started: new Date().toISOString(),
-      options: { speed: this.speed, hours: this.hours, seed, travelZoom: this.travelZoom },
+      options: {
+        speed: this.speed,
+        hours: this.hours,
+        seed,
+        travelZoom: this.travelZoom,
+        challenge: [...this.rules].join(',') || 'none',
+      },
       realSeconds: 0,
       gameSeconds: 0,
       finished: false,
@@ -309,7 +329,7 @@ export class Bot {
       if (u.id === 'trample') w = 1;
       add({ kind: 'shop', name: u.name, cost: e.upgradeCost(u), currency: u.currency ?? 'pollen' }, w);
     }
-    if (e.has('hive') && e.bears < this.h.apiary.hives.length)
+    if (!this.rules.has('bears') && e.has('hive') && e.bears < this.h.apiary.hives.length)
       add({ kind: 'shop', name: 'Hire a Bear', cost: e.bearCost, currency: 'pollen' }, 1.2);
     if (e.ringsBuilt >= 4) add({ kind: 'shop', name: 'Wayfarer Fairy', cost: e.wayfarerCost, currency: 'honey' }, 1.5);
 
@@ -325,7 +345,7 @@ export class Bot {
       if (hive)
         add({ kind: 'build', name: 'Beehive', build: 'hive', cost: e.hiveCost, currency: 'pollen', at: hive }, 0.6);
     }
-    if (e.has('rake')) {
+    if (!this.rules.has('home') && e.has('rake')) {
       const stone = this.stoneSpot();
       if (stone)
         add(
@@ -628,7 +648,7 @@ export class Bot {
 
     // Take up rings that have finished their ground, to put them down somewhere new.
     this.ringCheck -= dt;
-    if (this.ringCheck <= 0) {
+    if (!this.rules.has('rings') && this.ringCheck <= 0) {
       this.ringCheck = 20;
       const n = h.removeFinishedRings();
       if (n) {
@@ -787,6 +807,8 @@ export class Bot {
     this.log(ended ? 'end' : 'stop', ended ? 'planet restored' : `stopped at ${this.hours} h`);
     this.report.finished = ended;
     this.report.travels = this.travels;
+    // Did the challenges hold? (true = broken)
+    this.report.challenges = { ...this.h.challenges() };
     this.report.realSeconds = Math.round((performance.now() - this.realStart) / 1000);
     this.report.gameSeconds = Math.round(this.h.playTime());
     this.drawOverlay();

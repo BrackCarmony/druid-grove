@@ -113,7 +113,8 @@ aims directly at tiles instead of turning a camera. Dev server only; it never sa
     node scripts/bot-report.mjs        # summary of the newest run in bot-runs/
 
 Options: `speed` (steps of 0.05 s per frame), `hours` (game time to stop at), `seed`,
-`travelzoom=0` (never zoom out to walk faster). It plays near-perfectly (no hesitation, no
+`travelzoom=0` (never zoom out to walk faster), `challenge=home,bears,rings` (play by any
+mix of the challenge rules: no waystones, no hired bears, no removed fairy rings). It plays near-perfectly (no hesitation, no
 missed clicks), so its times are a lower bound on a real player's.
 
 ## Credits

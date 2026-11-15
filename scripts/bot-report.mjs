@@ -27,6 +27,13 @@ console.log(`${file}`);
 console.log(
   `options ${JSON.stringify(r.options)} · ${hm(r.gameSeconds)} game time in ${r.realSeconds}s · ${r.finished ? 'PLANET RESTORED' : 'not finished'} · stuck ${r.stuck}×`,
 );
+if (r.challenges) {
+  const c = r.challenges;
+  const ok = (broken) => (broken ? 'broken' : 'kept');
+  console.log(
+    `challenges: Home Sweet Home ${ok(c.waystone)} · Lonely Bears ${ok(c.bear)} · Fairies are Forever ${ok(c.ringRemoved)}`,
+  );
+}
 const recalls = r.events.filter((e) => e.type === 'recall');
 console.log(
   `waystone trips ${r.travels ?? 0} · rings recalled ${recalls.reduce((n, e) => n + parseInt(e.name), 0)} (in ${recalls.length} sweeps) · waystones built ${r.events.filter((e) => e.name === 'Waystone').length}`,

@@ -1648,6 +1648,7 @@ const bot =
           planet: () => ({ ...planetProgress(), total: realGlades }),
           playTime: () => playTime,
           ended: () => moonRestored,
+          challenges: () => challenges,
           travel,
           removeFinishedRings,
         },
