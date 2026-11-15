@@ -293,6 +293,103 @@ export class Chimes {
     [0, 4, 7, 12].forEach((s, i) => setTimeout(() => this.note(s, 0.6, 0.18, 'triangle'), i * 70));
   }
 
+  /** Notes one after another, `gap` ms apart. */
+  private seq(semis: number[], gap: number, dur: number, vol: number, type: OscillatorType = 'sine') {
+    semis.forEach((n, i) => setTimeout(() => this.note(n, dur, vol, type), i * gap));
+  }
+
+  /** A short burst of filtered noise: knocks, thumps, rustles, rattles. */
+  private hit(freq: number, type: BiquadFilterType, vol: number, dur: number, delay = 0, q = 1) {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    const t = ctx.currentTime + delay;
+    const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * (dur + 0.05)), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(this.master!);
+    src.start(t);
+  }
+
+  /** A low buzz, like a hive. */
+  private buzz(dur: number, vol: number) {
+    if (this.muted) return;
+    const ctx = this.ensure();
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth';
+    o.frequency.setValueAtTime(190, t);
+    o.frequency.linearRampToValueAtTime(240, t + dur);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 900;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.05);
+    g.gain.setValueAtTime(vol, t + dur * 0.6);
+    g.gain.linearRampToValueAtTime(0, t + dur);
+    // A wobble in the loudness, like wings.
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 22;
+    const depth = ctx.createGain();
+    depth.gain.value = vol * 0.5;
+    lfo.connect(depth).connect(g.gain);
+    o.connect(f).connect(g).connect(this.master!);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+  }
+
+  /** Something bought at the obelisk: each part of the shop has its own little sound. */
+  shop(kind: 'tool' | 'mount' | 'planting' | 'seeds' | 'squirrels' | 'soil' | 'hives' | 'fairies') {
+    switch (kind) {
+      case 'tool': // a wooden knock, then a bright ring
+        this.hit(900, 'bandpass', 1.4, 0.08, 0, 4);
+        this.hit(600, 'bandpass', 1.0, 0.1, 0.09, 4);
+        setTimeout(() => this.seq([7, 12, 19], 80, 0.7, 0.16, 'triangle'), 170);
+        break;
+      case 'mount': // two hoof-falls and a rising call
+        this.hit(220, 'lowpass', 2.2, 0.16);
+        this.hit(180, 'lowpass', 2.2, 0.16, 0.2);
+        setTimeout(() => this.seq([-5, 0, 7, 12], 120, 0.9, 0.15), 380);
+        break;
+      case 'planting': // a leafy rustle and a climbing run
+        this.hit(4000, 'highpass', 0.5, 0.25);
+        this.seq([0, 2, 4, 7, 9], 55, 0.5, 0.15, 'triangle');
+        break;
+      case 'seeds': // seeds rattling in the satchel
+        for (let i = 0; i < 6; i++) this.hit(2500 + Math.random() * 2000, 'bandpass', 0.9, 0.03, i * 0.045, 6);
+        setTimeout(() => this.seq([4, 9], 90, 0.5, 0.15, 'triangle'), 300);
+        break;
+      case 'squirrels': // a quick chitter
+        this.seq([24, 26, 24, 28, 26], 45, 0.05, 0.06, 'square');
+        setTimeout(() => this.seq([7, 12], 90, 0.5, 0.14, 'triangle'), 280);
+        break;
+      case 'soil': // an earthy thump and low notes
+        this.hit(150, 'lowpass', 2.6, 0.3);
+        this.seq([-12, -5, 0], 110, 0.8, 0.18);
+        break;
+      case 'hives': // a buzz, then a warm chord
+        this.buzz(0.45, 0.07);
+        setTimeout(() => this.seq([0, 4, 7], 70, 0.8, 0.14, 'triangle'), 300);
+        break;
+      case 'fairies': // a twinkling sparkle
+        this.seq([24, 28, 31, 36, 31, 36], 50, 0.4, 0.08);
+        this.hit(7000, 'highpass', 0.25, 0.4);
+        break;
+    }
+  }
+
   fanfare() {
     [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => setTimeout(() => this.note(s, 1.2, 0.2), i * 110));
   }

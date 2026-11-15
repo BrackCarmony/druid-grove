@@ -28,6 +28,7 @@ import { COMPLETE_AT, Garden } from './garden';
 import { Player } from './player';
 import { TouchControls, wantsTouch } from './touch';
 import { Cloud } from './cloud';
+import { Tips, TIPS_DONE } from './tips';
 import { DeadScenery, HeartTrees } from './props';
 import { createSky, restoreMoon } from './sky';
 import { Ending } from './ending';
@@ -47,6 +48,40 @@ const say = (keys: string, touch: string) => (TOUCH ? touch : keys);
 
 /** Worlds copied to the server (see cloud.ts); off until the player turns it on. */
 const cloud = new Cloud();
+
+/** The few starting tips (see tips.ts), in order. */
+let plantTime = 0; // seconds spent planting, for the first tip
+const tips = new Tips([
+  {
+    text: () =>
+      `${say('Hold the mouse button', 'Hold <b>Plant</b>')} to press seeds into the grey dirt. They bloom into flowers, and flowers make pollen.`,
+    done: 'planted',
+  },
+  {
+    text: () => 'Running low on seeds. Go back to the glowing <b>Seed Hollow</b> (⌂ on the compass) to refill.',
+    when: () => !econ.riding && econ.seeds < econ.seedCap * 0.3,
+    done: 'refilled',
+  },
+  {
+    text: () =>
+      `You can afford a new tool. Visit the <b>Verdant Obelisk</b> by the Hollow and ${say('press <b>E</b>', 'tap <b>Trade</b>')}.`,
+    when: () => {
+      const costs = TOOLS.filter((t) => !econ.tools.has(t.id)).map((t) => t.cost);
+      return !costs.length || econ.pollen >= Math.min(...costs);
+    },
+    done: 'shopped',
+  },
+  {
+    text: () => `${say('Scroll', 'Pinch')} to zoom out and see how much of the world is still grey.`,
+    done: 'zoomed',
+  },
+  {
+    text: () =>
+      `${say('Press <b>B</b>', 'Tap <b>Build</b>')} and pick a <b>Squirrel Cache</b>: it keeps your seeds topped up far from home.`,
+    when: () => econ.pollen >= econ.cacheCost,
+    done: 'built',
+  },
+]);
 
 // ---------- scene ----------
 const canvas = $<HTMLCanvasElement>('game');
@@ -158,6 +193,7 @@ interface SaveExtra {
   playTime?: number; // seconds played in this world
   timeOfDay?: number; // 0..1 through the day/night cycle
   moonRestored?: boolean; // reached 100% and saw the dragon mend the moon
+  tips?: number; // how far through the starting tips (TIPS_DONE when finished or hidden)
 }
 
 // The world is generated up front (it's the same planet for every slot); the save
@@ -181,6 +217,8 @@ function loadSlot(i: number) {
   }
   dayNight.time = extra?.timeOfDay ?? NEW_WORLD_TIME;
   moonRestored = extra?.moonRestored ?? false;
+  // Worlds from before the tips existed only get them if they've barely started.
+  tips.reset(extra?.tips ?? (loaded && econ.lifetimePollen > 500 ? TIPS_DONE : 0));
   restoreMoon(moonRestored ? 1 : 0);
   // Boulders can't sit inside a den mound (older saves may have some).
   for (const d of apiary.dens) scenery.trample(d.x, d.z, 4.5, () => {});
@@ -334,8 +372,10 @@ function renderShop() {
   shopButtons = [];
   $('shop-pollen').textContent = fmt(econ.pollen);
   $('shop-honey').textContent = fmt(econ.honey);
-  const bought = (msg: string) => {
-    chimes.purchase();
+  // (No sound given: the purchase makes its own, like a bear's growl.)
+  const bought = (msg: string, sound?: Parameters<typeof chimes.shop>[0]) => {
+    if (sound) chimes.shop(sound);
+    tips.flag('shopped');
     toast(msg);
     renderShop();
     renderHotbar();
@@ -357,7 +397,7 @@ function renderShop() {
             econ.riding = null;
             player.ride(null);
             player.setTool(t.id);
-            bought(`${t.name} acquired!`);
+            bought(`${t.name} acquired!`, 'tool');
           }
         },
       ),
@@ -379,7 +419,10 @@ function renderShop() {
         () => !owned && !needs && econ.pollen >= m.cost,
         () => {
           if (econ.buyMount(m))
-            bought(`${m.name} joined you! ${say(`Press ${TOOLS.length + i + 1}`, 'Tap it in the bar')} to ride.`);
+            bought(
+              `${m.name} joined you! ${say(`Press ${TOOLS.length + i + 1}`, 'Tap it in the bar')} to ride.`,
+              'mount',
+            );
         },
       ),
     );
@@ -435,7 +478,7 @@ function renderShop() {
             if (econ.buyUpgrade(u)) {
               if (u.id === 'family') stations.syncSquirrels();
               if (u.id === 'flock') fairies.syncFairies();
-              bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`);
+              bought(`${u.name}${u.max > 1 ? ` Lv ${econ.level(u.id)}` : ''}`, grp);
             }
           },
         ),
@@ -458,7 +501,7 @@ function renderShop() {
         econ.honey -= econ.wayfarerCost;
         econ.wayfarers++;
         fairies.syncFairies();
-        bought('A wayfarer fairy sets out from the Seed Hollow.');
+        bought('A wayfarer fairy sets out from the Seed Hollow.', 'fairies');
       },
     ),
   );
@@ -500,6 +543,7 @@ function afford(cost: number, have: number, what: string) {
 
 function built(x: number, z: number, color: number, msg: string) {
   chimes.purchase();
+  tips.flag('built');
   particles.burst(x, world.heightAt(x, z) + 1, z, color, 50, 1.5, 2);
   toast(msg);
 }
@@ -785,7 +829,10 @@ function openMenu(kind: MenuKind | null) {
     pausedAt = performance.now();
     showPauseMain();
   }
-  if (kind === 'shop') renderShop();
+  if (kind === 'shop') {
+    renderShop();
+    tips.flag('shopped');
+  }
   if (kind === 'rings') renderRings();
   if (kind === 'travel') renderTravel(waystones.nearby(player.pos)!);
   if (kind) touch?.release();
@@ -913,6 +960,7 @@ function saveNow() {
     playTime,
     timeOfDay: dayNight.time,
     moonRestored,
+    tips: tips.step,
   };
   garden.save(player, extra);
   cloud.saved(activeSlot);
@@ -1300,7 +1348,6 @@ function startGame(i: number) {
       .then(() => (screen.orientation as ScreenOrientation & { lock?(o: string): Promise<void> }).lock?.('landscape'))
       .catch(() => {});
   }
-  if (!loaded) toast(say('Hold the mouse', 'Hold Plant') + ' to press a seed into the dirt.');
 }
 canvas.addEventListener('click', () => {
   if (started && !menuOpen && document.pointerLockElement !== canvas) lock();
@@ -1485,10 +1532,15 @@ function frame() {
     const st = garden.aimStatus;
     cursorUniforms.uCursorState.value = st === 'none' ? 0 : st === 'ok' || st === 'done' ? 1 : 2;
     cursorUniforms.uCursor.value.set(garden.aim.x, garden.aim.z, econ.tool.radius);
-    if (mouseDown && !menuOpen && garden.work(dt)) player.workAnim = 1;
+    if (mouseDown && !menuOpen && garden.work(dt)) {
+      player.workAnim = 1;
+      plantTime += dt;
+      if (plantTime > 1.5) tips.flag('planted');
+    }
   }
 
   // Seed refills
+  const seedsBefore = econ.activeSeeds;
   const src = stations.nearby(player.pos);
   let stationText = '';
   if (src?.kind === 'hollow') {
@@ -1520,6 +1572,7 @@ function frame() {
     }
   }
   perf.mark('tools');
+  if (econ.activeSeeds > seedsBefore) tips.flag('refilled');
   const full = econ.allSeedsFull;
   if ((src || waystones.nearby(player.pos)) && full && !wasFull) chimes.purchase();
   wasFull = full;
@@ -1602,6 +1655,8 @@ function frame() {
     if (menuKind === 'rings') updateRings();
     if (buildOpen) renderBuild();
     touch?.update();
+    if (player.zoom > 8) tips.flag('zoomed');
+    tips.update(menuOpen || ending.active || !started);
     renderCompass();
     if (menuOpen) {
       $('shop-pollen').textContent = fmt(econ.pollen);
@@ -1660,6 +1715,7 @@ frame();
   perf,
   dayNight,
   chimes,
+  tips,
   terrain,
   scenery,
   buildDen,

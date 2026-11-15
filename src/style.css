@@ -1296,3 +1296,69 @@ body.touch #pollen-box {
   font-size: 56px;
   margin-bottom: 10px;
 }
+
+/* ---------- starting tips ---------- */
+#tip {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 16px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(300px, 34vw);
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  background: var(--panel);
+  border-left: 3px solid var(--leaf);
+  border-radius: 12px;
+  backdrop-filter: blur(6px);
+  font-size: 15px;
+  line-height: 1.35;
+  pointer-events: auto;
+}
+#tip.pop {
+  animation: tip-in 0.35s ease-out;
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-12px, -50%);
+  }
+}
+#tip b {
+  color: var(--leaf);
+  font-weight: 600;
+}
+.tip-leaf {
+  color: var(--leaf);
+  font-size: 18px;
+  line-height: 1.1;
+}
+.tip-text {
+  flex: 1;
+}
+.tip-skip {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+  font-weight: 500;
+}
+.tip-skip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+#tip.last .tip-skip {
+  visibility: hidden;
+}
+@media (max-height: 520px) {
+  #tip {
+    top: 42%;
+    font-size: 12px;
+    padding: 7px 6px 7px 10px;
+    width: min(240px, 30vw);
+  }
+}
