@@ -130,6 +130,9 @@ export interface Terrain {
   setRadius(r: number): void;
 }
 
+/** How deep a running creek fills its bed (m). */
+export const WATER_DEPTH = 0.55;
+
 export function createTerrain(world: World): Terrain {
   let radius = HALF;
   const geo = gridGeometry(radius);
@@ -151,12 +154,15 @@ export function createTerrain(world: World): Terrain {
     },
     vertexShader: /* glsl */ `
       uniform sampler2D uHeight;
+      uniform sampler2D uState;
+      uniform sampler2D uStatic;
       uniform vec2 uGridOffset;
       uniform float uHalf, uSize;
       varying vec3 vWorld;
       varying vec3 vNormal;
       varying float vDist;
       varying float vFlat;
+      varying vec2 vFlow;
       ${GLSL_PLANET}
       float hAt(vec2 c){ return texelFetch(uHeight, ivec2(mod(c, uSize)), 0).r; }
       float heightAt(vec2 p){
@@ -171,6 +177,12 @@ export function createTerrain(world: World): Terrain {
         float hx = heightAt(xz + vec2(1,0)) - heightAt(xz - vec2(1,0));
         float hz = heightAt(xz + vec2(0,1)) - heightAt(xz - vec2(0,1));
         vNormal = normalize(vec3(-hx, 2.0, -hz));
+        // Running creeks fill their beds about knee deep, with a flat-ish surface.
+        vec2 tuv = (xz + uHalf) / uSize;
+        float water = texture(uState, tuv).g * texture(uStatic, tuv).b;
+        h += water * ${WATER_DEPTH.toFixed(2)};
+        vNormal = normalize(mix(vNormal, vec3(0.0, 1.0, 0.0), water * 0.85));
+        vFlow = vec2(-hx, -hz); // downhill
         vWorld = vec3(xz.x, h, xz.y);
         vec3 wp = planetWarp(vWorld);
         vDist = length(wp - cameraPosition);
@@ -195,6 +207,7 @@ export function createTerrain(world: World): Terrain {
       varying vec3 vNormal;
       varying float vDist;
       varying float vFlat;
+      varying vec2 vFlow;
       ${GLSL_PNOISE}
       void main(){
         if (vFlat > uDrawR*0.97) discard; // outside the render distance (the grid is square)
@@ -239,17 +252,36 @@ export function createTerrain(world: World): Terrain {
         float speck = step(1.0 - sprout, pnoise(p*7.0 + 3.0, S*7.0));
         col = mix(col, grass, clamp(max(speck*0.85, smoothstep(0.75,1.0,s)), 0.0, 1.0) * (1.0-sc.b));
 
-        // water returns to creeks of finished glades
-        float wet = st.g;
-        vec3 water = mix(vec3(0.18,0.45,0.62), vec3(0.45,0.78,0.88), pnoise(p*1.5 + vec2(uTime*0.6, uTime*0.3), S*1.5));
-        col = mix(col, water, wet*sc.b);
+        // water returns to the creeks of restored glades, running downhill, with a little foam
+        // on the front as a stream first flows in
+        float level = st.g * sc.b;
+        float wet = smoothstep(0.02, 0.35, level);
+        float fs = length(vFlow);
+        vec2 fd = fs > 0.03 ? vFlow / fs : vec2(0.894, 0.447);
+        float speed = 0.5 + clamp(fs * 5.0, 0.0, 1.5);
+        // Flow map: two copies of the pattern slide downstream a short way and fade in turn, so
+        // the offset never grows with time (that would smear where the flow changes direction).
+        float ph0 = fract(uTime * 0.3);
+        float ph1 = fract(uTime * 0.3 + 0.5);
+        float mixw = abs(ph0 * 2.0 - 1.0);
+        vec2 o0 = fd * speed * ph0 * 2.2;
+        vec2 o1 = fd * speed * ph1 * 2.2;
+        float body = mix(pnoise((p - o0) * 1.5, S*1.5), pnoise((p - o1) * 1.5 + 5.2, S*1.5), mixw);
+        float ripple = mix(pnoise((p - o0) * 3.5 + 1.7, S*3.5), pnoise((p - o1) * 3.5 + 9.1, S*3.5), mixw);
+        vec3 water = mix(vec3(0.16,0.42,0.6), vec3(0.42,0.75,0.86), body);
+        water += smoothstep(0.62, 0.85, ripple) * 0.12;
+        // Foam only where a tile is still filling (its own level, not blended with the bank's).
+        float tileLevel = texelFetch(uState, ivec2(mod(floor(p + uHalf), uSize)), 0).g;
+        float foam = step(0.01, tileLevel) * (1.0 - smoothstep(0.5, 0.95, tileLevel));
+        water = mix(water, vec3(0.9, 0.95, 0.97), foam * (0.45 + 0.4 * pnoise(p * 3.0 + uTime, S * 3.0)));
+        col = mix(col, water, wet);
 
         // --- lighting ---
         vec3 N = normalize(vNormal);
         float diff = max(dot(N, uKeyDir), 0.0);
         vec3 sky = mix(uAmbLow, uAmbHigh, N.y*0.5+0.5);
         vec3 lit = col*(uKeyCol*diff + sky*0.55);
-        lit += wet*sc.b*pow(pnoise(p*8.0+uTime*2.0, S*8.0),12.0)*0.8;
+        lit += wet*pow(pnoise(p*8.0 + vec2(uTime*0.6, uTime*0.3), S*8.0),12.0)*0.8;
 
         // tile cursor (compared the short way round the planet)
         if (uCursorState > 0.5) {

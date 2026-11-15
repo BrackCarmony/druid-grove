@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mulberry32 } from './noise';
 import { planetize } from './planet';
-import { sharedUniforms } from './terrain';
-import { HALF, SIZE, Soil, World, wrap } from './world';
+import { sharedUniforms, WATER_DEPTH } from './terrain';
+import { HALF, SIZE, Soil, tileIndex, World, wrap } from './world';
 
 // Flowers and grass tufts, streamed in square chunks around the camera. A tile's
 // flora is a pure function of the tile (seeded by its index), so chunks are rebuilt
@@ -104,6 +104,74 @@ function flowerGeometry(detail: boolean) {
   return mergeGeometries(parts)!;
 }
 
+/** Vertex-coloured parts merged into one geometry. */
+function painted(parts: [THREE.BufferGeometry, number][]) {
+  return mergeGeometries(
+    parts.map(([g, hex]) => {
+      g = g.index ? g.toNonIndexed() : g;
+      g.deleteAttribute('uv');
+      const c = new THREE.Color(hex);
+      const n = g.attributes.position.count;
+      const a = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) a.set([c.r, c.g, c.b], i * 3);
+      g.setAttribute('color', new THREE.BufferAttribute(a, 3));
+      return g;
+    }),
+  )!;
+}
+
+/** A clump of reeds standing in the shallows, with a couple of cattails. */
+function reedGeometry() {
+  const parts: [THREE.BufferGeometry, number][] = [];
+  for (let k = 0; k < 7; k++) {
+    const h = 0.9 + (k % 3) * 0.25;
+    const b = new THREE.ConeGeometry(0.025, h, 3, 1);
+    b.translate(0, h / 2, 0);
+    b.rotateZ((k - 3) * 0.08);
+    b.rotateY(k * 2.4);
+    b.translate(Math.cos(k * 2.4) * 0.1, 0, Math.sin(k * 2.4) * 0.1);
+    parts.push([b, k % 2 ? 0x4f8a36 : 0x6a9c40]);
+  }
+  for (const [x, z, h] of [
+    [0.04, 0.02, 1.35],
+    [-0.06, -0.05, 1.15],
+  ]) {
+    const stalk = new THREE.CylinderGeometry(0.008, 0.01, h, 4);
+    stalk.translate(x, h / 2, z);
+    parts.push([stalk, 0x5a7f34]);
+    const head = new THREE.CylinderGeometry(0.03, 0.03, 0.18, 6);
+    head.translate(x, h - 0.12, z);
+    parts.push([head, 0x6b4226]);
+  }
+  return painted(parts);
+}
+
+/** A lily pad (a disc with a notch) and, on some, a flower. */
+function lilyGeometry() {
+  const pad = new THREE.CircleGeometry(0.28, 12, 0.35, Math.PI * 2 - 0.7);
+  pad.rotateX(-Math.PI / 2);
+  const small = new THREE.CircleGeometry(0.17, 10, 2.5, Math.PI * 2 - 0.7);
+  small.rotateX(-Math.PI / 2);
+  small.translate(0.38, 0.005, 0.15);
+  const parts: [THREE.BufferGeometry, number][] = [
+    [pad, 0x3f8a3a],
+    [small, 0x4d9a40],
+  ];
+  for (let k = 0; k < 6; k++) {
+    const p = new THREE.SphereGeometry(0.05, 5, 3);
+    p.scale(0.5, 0.35, 1);
+    p.translate(0, 0.04, 0.045);
+    p.rotateX(-0.5);
+    p.rotateY((k / 6) * Math.PI * 2);
+    p.translate(-0.05, 0.02, -0.03);
+    parts.push([p, 0xf6d6e6]);
+  }
+  const heart = new THREE.SphereGeometry(0.025, 5, 3);
+  heart.translate(-0.05, 0.06, -0.03);
+  parts.push([heart, 0xffd84a]);
+  return painted(parts);
+}
+
 function tuftGeometry() {
   const blades: THREE.BufferGeometry[] = [];
   for (let k = 0; k < 5; k++) {
@@ -202,6 +270,8 @@ class Chunk {
   group = new THREE.Group();
   flowers!: Layer;
   tufts!: Layer;
+  reeds!: Layer;
+  lilies!: Layer;
   cx: number;
   cz: number;
   // centre in canonical coordinates
@@ -223,6 +293,10 @@ export class Flowers {
   private tuftGeo = tuftGeometry();
   private flowerMat = new THREE.MeshLambertMaterial({ vertexColors: true });
   private tuftMat = new THREE.MeshLambertMaterial({ color: 0x6aa83f });
+  private reedGeo = reedGeometry();
+  private lilyGeo = lilyGeometry();
+  private reedMat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  private lilyMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
   private chunks = new Map<number, Chunk>();
   /** Render-distance scale (1 = full). */
   viewScale = 1;
@@ -242,6 +316,44 @@ export class Flowers {
   constructor(private world: World) {
     patchFlora(this.flowerMat, 0.25, new THREE.Color(0x4f8f3a));
     patchFlora(this.tuftMat, 0.35, null);
+    patchFlora(this.reedMat, 0.12, null);
+    patchFlora(this.lilyMat, 0, null);
+  }
+
+  /** A creek tile just filled with water: reeds on its banks, lily pads out in the stream. */
+  waterTile(t: number, time: number) {
+    this.recent.set(t, time);
+    const [x, z] = this.world.tileCenter(t);
+    const ch = this.chunks.get(Math.floor((x + HALF) / CHUNK) * NCH + Math.floor((z + HALF) / CHUNK));
+    if (!ch) return;
+    if (ch.reeds.full || ch.lilies.full) return this.rebuild(ch);
+    this.addWater(ch, t, time);
+    this.dirty.add(ch);
+  }
+
+  private addWater(ch: Chunk, t: number, birth: number) {
+    const w = this.world;
+    const rng = mulberry32(t * 104729 + 7);
+    const [cx, cz] = w.tileCenter(t);
+    const i = t % SIZE;
+    const j = (t / SIZE) | 0;
+    const dry = [tileIndex(i - 1, j), tileIndex(i + 1, j), tileIndex(i, j - 1), tileIndex(i, j + 1)].filter(
+      (n) => w.soil[n] !== Soil.Creek,
+    ).length;
+    const bank = dry > 0;
+    const x = cx + (rng() - 0.5) * 0.7;
+    const z = cz + (rng() - 0.5) * 0.7;
+    if (bank && rng() < 0.4) {
+      this.compose(x, z, 0.8 + rng() * 0.5, rng());
+      ch.reeds.add(this.m, this.c.setScalar(0.85 + rng() * 0.25), birth);
+    } else if (dry <= 1 && rng() < 0.16) {
+      // (creeks are narrow: a pad can sit by one bank)
+      this.compose(x, z, 0.8 + rng() * 0.6, rng());
+      // Float it on the water's surface.
+      this.p.y += WATER_DEPTH + 0.02;
+      this.m.compose(this.p, this.q, this.s);
+      ch.lilies.add(this.m, this.c.setScalar(0.85 + rng() * 0.2), birth);
+    }
   }
 
   /** A tile just bloomed: add its flora if its chunk is loaded. */
@@ -302,25 +414,40 @@ export class Flowers {
     const tiles = Math.min(CHUNK * CHUNK, Math.ceil(bloomed * 1.3) + 48);
     ch.flowers = new Layer(this.hiGeo, this.loGeo, this.flowerMat, tiles * 3);
     ch.tufts = new Layer(this.tuftGeo, null, this.tuftMat, tiles);
-    ch.group.add(ch.flowers.hi, ch.flowers.lo!, ch.tufts.hi);
+    // Reeds and lilies: room for every creek tile that's running, and some more.
+    let wet = 0;
+    this.chunkTiles(ch, (t) => {
+      if (this.world.wet[t] === 255) wet++;
+    });
+    ch.reeds = new Layer(this.reedGeo, null, this.reedMat, Math.ceil(wet * 0.5) + 24);
+    ch.lilies = new Layer(this.lilyGeo, null, this.lilyMat, Math.ceil(wet * 0.1) + 8);
+    ch.group.add(ch.flowers.hi, ch.flowers.lo!, ch.tufts.hi, ch.reeds.hi, ch.lilies.hi);
     this.chunkTiles(ch, (t) => {
       if (this.world.bloomed[t]) this.addTile(ch, t, this.recent.get(t) ?? -100);
+      else if (this.world.wet[t] === 255) this.addWater(ch, t, this.recent.get(t) ?? -100);
     });
     ch.flowers.upload();
     ch.tufts.upload();
+    ch.reeds.upload();
+    ch.lilies.upload();
   }
 
   private rebuild(ch: Chunk) {
     ch.group.clear();
+    this.dispose(ch);
+    this.build(ch);
+  }
+
+  private dispose(ch: Chunk) {
     ch.flowers.dispose();
     ch.tufts.dispose();
-    this.build(ch);
+    ch.reeds.dispose();
+    ch.lilies.dispose();
   }
 
   private unload(key: number, ch: Chunk) {
     this.group.remove(ch.group);
-    ch.flowers.dispose();
-    ch.tufts.dispose();
+    this.dispose(ch);
     this.chunks.delete(key);
     this.dirty.delete(ch);
   }
@@ -330,6 +457,8 @@ export class Flowers {
     for (const ch of this.dirty) {
       ch.flowers.upload();
       ch.tufts.upload();
+      ch.reeds.upload();
+      ch.lilies.upload();
     }
     this.dirty.clear();
     if (this.recent.size > 4000 || (this.recent.size && Math.random() < 0.02)) {
@@ -381,6 +510,8 @@ export class Flowers {
       const vis = d < DRAW_DIST * s && this.frustum.intersectsBox(this.box);
       ch.flowers.setDetail(d < LOD_DIST * s, vis);
       ch.tufts.setDetail(true, vis && d < TUFT_DIST * s);
+      ch.reeds.setDetail(true, vis && d < LOD_DIST * 1.6 * s);
+      ch.lilies.setDetail(true, vis && d < LOD_DIST * s);
     }
   }
 

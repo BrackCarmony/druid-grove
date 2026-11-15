@@ -191,6 +191,57 @@ export class Chimes {
     if (this.songs.length) this.musicGain!.gain.setTargetAtTime(MUSIC_LEVEL * music, t, 0.1);
   }
 
+  private brook: GainNode | null = null;
+  private brookLevel = 0;
+  /**
+   * The sound of a running creek, 0 (none in earshot) to 1 (right beside it): filtered noise
+   * through two band filters whose pitch slowly wanders, so it babbles rather than hisses.
+   */
+  setWater(level: number) {
+    if (Math.abs(level - this.brookLevel) < 0.02) return;
+    this.brookLevel = level;
+    if (!this.brook && level <= 0) return;
+    const ctx = this.ensure();
+    if (!this.brook) {
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      this.brook = ctx.createGain();
+      this.brook.gain.value = 0;
+      this.brook.connect(this.master!);
+      const band = (freq: number, q: number, wander: number, rate: number, vol: number, flutter: number) => {
+        const f = ctx.createBiquadFilter();
+        f.type = 'bandpass';
+        f.frequency.value = freq;
+        f.Q.value = q;
+        const lfo = ctx.createOscillator();
+        lfo.frequency.value = rate;
+        const depth = ctx.createGain();
+        depth.gain.value = wander;
+        lfo.connect(depth).connect(f.frequency);
+        const g = ctx.createGain();
+        g.gain.value = vol;
+        // a quicker wobble in loudness: the gurgle
+        const fl = ctx.createOscillator();
+        fl.frequency.value = rate * 7.3;
+        const fd = ctx.createGain();
+        fd.gain.value = flutter;
+        fl.connect(fd).connect(g.gain);
+        src.connect(f).connect(g).connect(this.brook!);
+        lfo.start();
+        fl.start();
+      };
+      band(520, 0.8, 180, 0.23, 0.9, 0.25);
+      band(1500, 1.6, 600, 0.61, 0.45, 0.2);
+      band(3200, 2.5, 900, 1.13, 0.15, 0.08);
+      src.start();
+    }
+    this.brook.gain.setTargetAtTime(level * 0.7, ctx.currentTime, 0.5);
+  }
+
   setMuted(m: boolean) {
     this.muted = m;
     if (this.ctx) this.out!.gain.setTargetAtTime(m ? 0 : 1, this.ctx.currentTime, 0.05);

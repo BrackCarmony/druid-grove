@@ -159,6 +159,24 @@ scene.add(stations.group);
 let toastTimer = 0;
 let pollenPulse = false;
 let newsTimer = 0;
+let brookTimer = 0;
+/** Water has run in some creek of this world (so the news is only told once). */
+let hadWater = false;
+const BROOK_EAR = 14; // metres a running creek can be heard from
+
+/** How loud running water is where she stands: 1 beside a creek, fading to 0 at BROOK_EAR. */
+function brookLevel() {
+  let best = BROOK_EAR;
+  const { x, z } = player.pos;
+  for (let dz = -BROOK_EAR; dz <= BROOK_EAR; dz += 2)
+    for (let dx = -BROOK_EAR; dx <= BROOK_EAR; dx += 2) {
+      const d = Math.hypot(dx, dz);
+      if (d >= best) continue;
+      const t = world.tileAt(x + dx, z + dz);
+      if (world.wet[t] > 128) best = d;
+    }
+  return Math.pow(1 - best / BROOK_EAR, 1.5);
+}
 /** A line of news under the toasts (wildlife returning), with a soft chime. */
 function news(msg: string) {
   const el = $('news');
@@ -182,6 +200,11 @@ const garden = new Garden(world, econ, flowers, hearts, scenery, particles, chim
   // rather than once per bloom (thousands per second when glades are restored).
   earned: () => {
     pollenPulse = true;
+  },
+  waterFlows: () => {
+    if (hadWater || !started) return;
+    hadWater = true;
+    news('Water is running in the creeks again.');
   },
 });
 
@@ -278,7 +301,8 @@ function loadSlot(i: number) {
   apiary.syncBears(extra?.bearHomes);
   fairies.syncFairies(); // wayfarers
   flowers.reset(); // chunks streamed in behind the home screen predate the save
-  wildlife.reset(Wildlife.stageAt(planetProgress().pct)); // the ones already back don't announce again
+  wildlife.reset(Wildlife.stageAt(planetProgress().pct));
+  hadWater = world.glades.some((g) => g.completed && g.total > 0); // the ones already back don't announce again
   player.setTool(econ.current);
   player.setArmor(econ.level('armor') > 0);
   player.ride(econ.mount);
@@ -1832,6 +1856,11 @@ function present(dt: number) {
   perf.mark('flowers');
   wildlife.update(dt, time, player.pos, !!econ.riding);
   perf.mark('wildlife');
+  brookTimer -= dt;
+  if (brookTimer <= 0) {
+    brookTimer = 0.25;
+    chimes.setWater(started && !ending.active && !bot ? brookLevel() : 0);
+  }
 
   // HUD (throttled)
   hudTimer -= dt;
@@ -1944,6 +1973,7 @@ frame();
     return challenges;
   },
   wildlife,
+  brookLevel,
   terrain,
   scenery,
   buildDen,

@@ -24,7 +24,13 @@ export interface SeedPool {
 export interface GardenEvents {
   toast(msg: string, big?: boolean): void;
   earned(amount: number): void;
+  /** Water has started running into some creek. */
+  waterFlows?(): void;
 }
+
+/** How fast a stream runs along a dry creek bed (tiles a second), and how fast it fills. */
+const FLOW_SPEED = 7;
+const FILL_TIME = 0.7;
 
 export class Garden {
   aim = new THREE.Vector3();
@@ -45,6 +51,8 @@ export class Garden {
   /** Tiles planted by fairies: they bloom without a chime so automation doesn't drown out the player. */
   private quiet = new Set<number>();
   private econPool: SeedPool;
+  /** Creek tiles water is on its way to: when it gets there (it then rises until full). */
+  private water = new Map<number, number>();
 
   constructor(
     private world: World,
@@ -225,6 +233,16 @@ export class Garden {
         w.growing.add(t);
       }
     }
+    // Streams running in: each tile fills once the water reaches it.
+    for (const [t, at] of this.water) {
+      if (time < at) continue;
+      w.wet[t] = Math.min(255, Math.ceil(w.wet[t] + (dt * 255) / FILL_TIME));
+      w.markDirty(t);
+      if (w.wet[t] >= 255) {
+        this.water.delete(t);
+        this.flowers.waterTile(t, time);
+      }
+    }
     const rate = dt / this.econ.growTime;
     for (const t of w.growing) {
       w.growth[t] += rate;
@@ -287,12 +305,7 @@ export class Garden {
     // The rest of the glade flourishes outward from the heart.
     this.gladeTiles(g, (t) => {
       if (w.gladeOf[t] !== g.id) return;
-      if (w.soil[t] === Soil.Creek) {
-        w.wet[t] = 1;
-        w.markDirty(t);
-        return;
-      }
-      if (w.seeded[t]) return;
+      if (w.soil[t] === Soil.Creek || w.seeded[t]) return;
       const [x, z] = w.tileCenter(t);
       w.setSeeded(t);
       w.work[t] = 1;
@@ -304,25 +317,81 @@ export class Garden {
       if (!list) this.pending.set(b, (list = []));
       list.push(t);
     });
-    this.wetNeighbouringCreeks(g);
+    this.flowIn(this.creeksOf(g), g, time);
   }
 
-  private wetNeighbouringCreeks(g: Glade) {
+  /** Creek tiles a restored glade brings water back to: its own, and those along its edges. */
+  private creeksOf(g: Glade) {
     const w = this.world;
+    const out: number[] = [];
     this.gladeTiles(
       g,
       (t) => {
-        if (w.soil[t] !== Soil.Creek || w.wet[t]) return;
+        if (w.soil[t] !== Soil.Creek) return;
+        if (w.gladeOf[t] === g.id) return void out.push(t);
         const i = t % SIZE;
         const j = (t / SIZE) | 0;
         const nb = [tileIndex(i - 1, j), tileIndex(i + 1, j), tileIndex(i, j - 1), tileIndex(i, j + 1)];
-        if (nb.some((n) => w.gladeOf[n] === g.id)) {
-          w.wet[t] = 1;
-          w.markDirty(t);
-        }
+        if (nb.some((n) => w.gladeOf[n] === g.id)) out.push(t);
       },
       2,
     );
+    return out;
+  }
+
+  /**
+   * Send water along dry creek tiles: on from any stream already running beside them, or else
+   * from a spring rising nearest the glade's heart, spreading tile by tile along the bed.
+   */
+  private flowIn(tiles: number[], g: Glade, time: number) {
+    const w = this.world;
+    const todo = new Set(tiles.filter((t) => !w.wet[t] && !this.water.has(t)));
+    if (!todo.size) return;
+    this.events.waterFlows?.();
+    const around = (t: number) => {
+      const i = t % SIZE;
+      const j = (t / SIZE) | 0;
+      const out: number[] = [];
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) if (di || dj) out.push(tileIndex(i + di, j + dj));
+      return out;
+    };
+    let queue: [number, number][] = [];
+    for (const t of todo)
+      for (const n of around(t))
+        if (w.wet[n] || this.water.has(n)) {
+          queue.push([t, Math.max(time, this.water.get(n) ?? time)]);
+          break;
+        }
+    const [hx, hz] = w.tileCenter(g.heartTile);
+    while (todo.size) {
+      if (!queue.length) {
+        // Nothing running into what's left: a spring rises nearest the heart.
+        let best = -1;
+        let bd = Infinity;
+        for (const t of todo) {
+          const [x, z] = w.tileCenter(t);
+          const d = wdist(x, z, hx, hz);
+          if (d < bd) {
+            bd = d;
+            best = t;
+          }
+        }
+        queue = [[best, time]];
+      }
+      queue.sort((a, b) => a[1] - b[1]);
+      for (const [t] of queue) todo.delete(t);
+      for (let k = 0; k < queue.length; k++) {
+        const [t, at] = queue[k];
+        this.water.set(t, at);
+        for (const n of around(t))
+          if (todo.has(n)) {
+            todo.delete(n);
+            queue.push([n, at + 1 / FLOW_SPEED]);
+          }
+      }
+      queue = [];
+    }
   }
 
   currentGlade(x: number, z: number): Glade | null {
@@ -466,13 +535,10 @@ export class Garden {
         if (completed.has(g.id)) {
           g.completed = true;
           this.hearts.complete(g, 0, true);
-          this.gladeTiles(g, (t) => {
-            if (w.gladeOf[t] === g.id && w.soil[t] === Soil.Creek) {
-              w.wet[t] = 1;
-              w.markDirty(t);
-            }
-          });
-          this.wetNeighbouringCreeks(g);
+          for (const t of this.creeksOf(g)) {
+            w.wet[t] = 255;
+            w.markDirty(t);
+          }
         }
       }
       player.pos.x = wrap(d.pos[0]);

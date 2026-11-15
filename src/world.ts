@@ -156,6 +156,7 @@ export class World {
   growth = new Float32Array(SIZE * SIZE); // 0..1 once seeded
   seeded = new Uint8Array(SIZE * SIZE);
   bloomed = new Uint8Array(SIZE * SIZE);
+  /** Creek water, 0 (dry) to 255 (full): it rises as a stream flows in. */
   wet = new Uint8Array(SIZE * SIZE);
   growing = new Set<number>();
   /** Unplanted tiles per bookkeeping chunk and soil: index chunk * 3 + soil. */
@@ -422,7 +423,7 @@ export class World {
   markDirty(t: number) {
     const r = this.seeded[t] ? 90 + this.growth[t] * 165 : this.work[t] * 80;
     this.stateData[t * 4] = r;
-    this.stateData[t * 4 + 1] = this.wet[t] ? 255 : 0;
+    this.stateData[t * 4 + 1] = this.wet[t];
     this.stateData[t * 4 + 2] = this.bloomed[t] ? 255 : 0;
     const i = t % SIZE;
     const j = (t / SIZE) | 0;
