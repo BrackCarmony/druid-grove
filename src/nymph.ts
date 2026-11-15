@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Gait } from './mounts';
 import type { MountId, ToolId } from './economy';
 import { DEFAULT_LOOK, HAIR_COLORS, Look, OUTFITS, SKINS } from './look';
 import { bake, joint, lam, leafGeo, limb, mesh } from './rig';
@@ -620,6 +621,8 @@ export interface NymphState {
   riding: MountId | null;
   work: number; // 0..1, planting / raking
   tool: ToolId;
+  /** The mount's gait while riding (to move with it). */
+  gait?: Gait;
 }
 
 const lerp = THREE.MathUtils.lerp;
@@ -652,6 +655,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   let hipY = HIP_Y + move * (Math.abs(cosP) * lerp(0.025, 0.06, run) - lerp(0.02, 0.05, run));
   let hipRotY = -sinP * 0.12 * move; // the hip of the forward leg leads (she faces -z, left at -x)
   let hipRotZ = 0;
+  let hipRotX = 0;
   let lean = -lerp(0.04, 0.26, run) * move;
   let pose = {
     lHip: sinP * legSwing,
@@ -757,6 +761,37 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     pose.headY = Math.sin(time * 0.4) * 0.2;
   }
 
+  // Riding at speed: move with the mount instead of sitting like a statue. The hips take up
+  // its pitch and roll (a beat late, through the easing below) so her upper body stays nearer
+  // level; she rises a little out of the saddle after each trot beat and sits deep into the
+  // gallop's rocking, leaning forward and pumping with the stride; her hands ride the
+  // mane and her lower legs swing loose. (She faces the other way to the mount, so its
+  // pitch and roll read with flipped signs in her frame.)
+  if (s.riding && s.gait) {
+    const G = s.gait;
+    const trotting = G.move * (1 - G.gallop);
+    const gal = G.gallop;
+    hipRotX = G.pitch * 0.75;
+    hipRotZ += G.roll * 0.6;
+    hipY +=
+      Math.max(0, Math.sin(G.phase * 2 - 0.9)) * 0.035 * trotting -
+      G.bob * 0.35 +
+      Math.sin(G.phase - 1.2) * 0.025 * gal;
+    lean += -0.3 * gal - 0.07 * trotting + Math.sin(G.phase - 0.8) * 0.07 * gal;
+    const pump = Math.sin(G.phase - 0.5) * 0.2 * gal + Math.sin(G.phase * 2 - 0.7) * 0.06 * trotting;
+    pose.lSh += pump + 0.18 * gal;
+    pose.rSh += pump + 0.18 * gal;
+    pose.lElbow += 0.25 * gal - pump * 0.6;
+    pose.rElbow += 0.25 * gal - pump * 0.6;
+    pose.lKnee += Math.sin(G.phase - 0.5) * 0.14 * G.move;
+    pose.rKnee += Math.sin(G.phase - 0.2) * 0.14 * G.move;
+    pose.lAnkle += Math.sin(G.phase - 0.9) * 0.1 * G.move;
+    pose.rAnkle += Math.sin(G.phase - 0.6) * 0.1 * G.move;
+    // Her head stays steady, looking ahead past the antlers.
+    pose.headX += 0.25 * gal + 0.05 * trotting - Math.sin(G.phase - 0.8) * 0.05 * gal;
+    pose.headY *= 1 - G.move;
+  }
+
   // Rake: carried over the right shoulder (gripped at the chest, the handle resting on top
   // of the shoulder, the head riding up behind her), or planted in the soil and drawn back
   // and forth while raking.
@@ -794,7 +829,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     o.rotation.z += (z - o.rotation.z) * k;
   };
   rig.hips.position.y += (hipY - rig.hips.position.y) * Math.min(1, dt * 20);
-  set(rig.hips, 0, hipRotY, hipRotZ);
+  set(rig.hips, hipRotX, hipRotY, hipRotZ);
   set(rig.spine, lean, -hipRotY + twist, -hipRotZ * 1.5);
   rig.spine.scale.set(1 + breathe * 0.008, 1 + breathe * 0.012, 1 + breathe * 0.012);
   set(rig.neck, -lean * 0.4 + pose.headX * 0.4, pose.headY * 0.4 - twist * 0.85, 0);

@@ -10,6 +10,18 @@ export interface MountModel {
   /** Where the rider sits (top of the shell / the saddle); she faces +z here too. */
   back: THREE.Group;
   animate(speed: number, dt: number, time: number): void;
+  /** This frame's gait, for the rider to move with: stride phase, walk/gallop blends, and
+   * how the body is bobbing (m) and pitching (radians, + = nose down). */
+  gait: Gait;
+}
+
+export interface Gait {
+  phase: number;
+  move: number;
+  gallop: number;
+  bob: number;
+  pitch: number;
+  roll: number;
 }
 
 const basic = (color: number) => new THREE.MeshBasicMaterial({ color });
@@ -293,9 +305,11 @@ function tortoise(): MountModel {
   // --- gait: a slow diagonal walk with a side-to-side roll ---
   let phase = 0;
   const blink = blinker();
+  const gait: Gait = { phase: 0, move: 0, gallop: 0, bob: 0, pitch: 0, roll: 0 };
   return {
     root,
     back,
+    gait,
     animate(speed, dt, time) {
       const move = clamp01(speed / 1.5);
       phase += (speed / 1.3) * Math.PI * 2 * dt;
@@ -311,6 +325,7 @@ function tortoise(): MountModel {
       body.position.y = Math.abs(Math.sin(phase)) * 0.035 * move;
       body.rotation.z = Math.sin(phase) * 0.04 * move;
       body.rotation.x = Math.sin(phase * 2) * 0.012 * move;
+      Object.assign(gait, { phase, move, bob: body.position.y, pitch: body.rotation.x, roll: body.rotation.z });
       // The head pushes forward with each step; at rest it slowly looks about.
       const idle = 1 - move;
       neck.position.z = RZ * 0.9 + Math.sin(phase * 2) * 0.03 * move;
@@ -355,8 +370,9 @@ function stag(): MountModel {
   const torso = joint(root, 0, 1.36, 0);
 
   // Body: chest, barrel and haunch, narrower than it is deep, with a pale belly and rump.
-  const chest = ell(0.25, 0.34, 0.4, C.coat, torso, 14);
-  chest.position.set(0, -0.02, 0.48);
+  // The chest is its own joint so it can heave with each breath (hard, once a stride, at a gallop).
+  const chestJ = joint(torso, 0, -0.02, 0.48);
+  ell(0.25, 0.34, 0.4, C.coat, chestJ, 14);
   const barrel = ell(0.23, 0.3, 0.55, C.coat, torso, 14);
   barrel.position.set(0, 0.02, 0);
   const haunch = ell(0.25, 0.33, 0.36, C.coat, torso, 14);
@@ -576,13 +592,16 @@ function stag(): MountModel {
   let idleT = 0;
   let graze = 0;
   let earT = 1;
+  let effort = 0; // breath: deeper the longer she's been running
   const blink = blinker();
+  const gait: Gait = { phase: 0, move: 0, gallop: 0, bob: 0, pitch: 0, roll: 0 };
   // Phase offsets (fractions of a stride): [front L, front R, hind L, hind R].
   const TROT = [0, 0.5, 0.5, 0];
   const GALLOP = [0, 0.12, 0.55, 0.67];
   return {
     root,
     back,
+    gait,
     animate(speed, dt, time) {
       const move = clamp01(speed / 2.5);
       const g = clamp01((speed - 8.5) / 3); // gallop blend
@@ -603,11 +622,33 @@ function stag(): MountModel {
           L.hoof.rotation.x = REST.hind[2] + lift * 0.5 - swing * 0.3;
         }
       });
-      // Body: a light trotting bounce, or the rocking-horse pitch of a gallop.
-      const trotBob = Math.abs(Math.sin(phase * 2)) * 0.035 * move * (1 - g);
-      const gallopBob = (Math.sin(phase) * 0.5 + 0.5) * 0.08 * g;
+      // Body: a springy trot (up on each diagonal pair, the back rocking a little and rolling
+      // toward the planted fore leg), or the rocking-horse pitch of a gallop: nose down as the
+      // front hooves land, haunches down on the push-off.
+      const trot = move * (1 - g);
+      const trotBob = Math.abs(Math.sin(phase * 2)) * 0.055 * trot;
+      const gallopBob = (Math.sin(phase) * 0.5 + 0.5) * 0.11 * g;
       torso.position.y = TORSO_Y + trotBob + gallopBob;
-      torso.rotation.x = -Math.sin(phase + 0.6) * 0.07 * g;
+      torso.rotation.x = -Math.sin(phase + 0.6) * 0.12 * g + Math.sin(phase * 2 + 0.8) * 0.025 * trot;
+      torso.rotation.z = Math.sin(phase) * 0.035 * trot + Math.sin(phase - 0.4) * 0.02 * g;
+      Object.assign(gait, {
+        phase,
+        move,
+        gallop: g,
+        bob: trotBob + gallopBob,
+        pitch: torso.rotation.x,
+        roll: torso.rotation.z,
+      });
+      // The chest heaves: slow breaths at rest, quicker ones at a trot, and one deep breath
+      // per stride at a gallop (as the front legs reach); the shoulders roll with the stride.
+      effort += ((g > 0.5 ? 1 : move * 0.5) - effort) * Math.min(1, dt * 0.5);
+      const breath =
+        (1 - move) * Math.sin(time * 1.4) * 0.012 +
+        trot * Math.sin(time * 4.5) * (0.012 + effort * 0.01) +
+        g * Math.sin(phase - 0.2) * (0.025 + effort * 0.015);
+      chestJ.scale.set(1 + breath * 0.8, 1 + breath, 1 + breath * 0.4);
+      chestJ.rotation.x = Math.sin(phase * (g > 0.5 ? 1 : 2) - 0.2) * 0.05 * move;
+      chestJ.rotation.y = Math.sin(phase) * 0.04 * trot;
 
       // Idle: look around, flick the ears, and now and then drop the head to graze.
       const idle = 1 - move;
@@ -617,7 +658,6 @@ function stag(): MountModel {
       // Running, the neck pumps: at a gallop it swings down as the front hooves land and
       // lifts on the push-off (one beat per stride), with the head nodding a beat behind;
       // at a trot it bobs twice per stride and sways a little side to side.
-      const trot = move * (1 - g);
       const pump = Math.sin(phase - 0.3) * 0.22 * g + Math.sin(phase * 2 - 0.5) * 0.07 * trot;
       const nod = -Math.sin(phase - 1.0) * 0.14 * g + Math.sin(phase * 2 - 1.3) * 0.05 * trot;
       neck.rotation.x = NECK_REST + graze * 1.25 + pump - move * 0.12 + Math.sin(time * 0.6) * 0.03 * idle;

@@ -265,6 +265,7 @@ export class Player {
           riding: mount ? mount.id : null,
           work: this.workAnim,
           tool: this.tool,
+          gait: mount ? this.mountModels.get(mount.id)!.gait : undefined,
         },
         dt,
         time,
