@@ -343,6 +343,8 @@ export const WAYFARER = { baseCost: 1500, growth: 1.6, speedMul: 1.7, carryMul: 
 export const DEN = { baseCost: 5000, growth: 1.8 };
 // Waystones are teleports and bottomless seed hubs, so they get pricey fast (~15 by the late game).
 export const WAYSTONE = { baseCost: 10000, growth: 1.9 };
+/** More obelisks (shops out in the world): ten times a waystone's price, doubling each. */
+export const OBELISK = { stoneMultiple: 10, growth: 2 };
 
 export function satchelCap(lvl: number) {
   return Math.round((30 * Math.pow(1.6, lvl)) / 5) * 5;
@@ -374,6 +376,7 @@ export class Economy {
   ringsBuilt = 0;
   densBuilt = 0; // extra dens beyond the one at home
   stonesBuilt = 0; // waystones beyond the one at home
+  obelisksBuilt = 0; // obelisks beyond the one at home
   wayfarers = 0;
 
   level(id: string) {
@@ -517,6 +520,9 @@ export class Economy {
   }
   get stoneCost() {
     return Math.ceil(WAYSTONE.baseCost * Math.pow(WAYSTONE.growth, this.stonesBuilt));
+  }
+  get obeliskCost() {
+    return Math.ceil(this.stoneCost * OBELISK.stoneMultiple * Math.pow(OBELISK.growth, this.obelisksBuilt));
   }
   get hiveCap() {
     return hiveCap(this.level('combs'));

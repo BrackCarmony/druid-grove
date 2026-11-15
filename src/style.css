@@ -486,6 +486,9 @@ button.remove {
 .cp-mark.stone {
   color: #8fe8ff;
 }
+.cp-mark.obelisk {
+  color: #9cf07a;
+}
 .cp-mark.den {
   color: #ffa02b;
   font-size: 11px;

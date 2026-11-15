@@ -374,6 +374,7 @@ export class Garden {
       ringsBuilt: this.econ.ringsBuilt,
       densBuilt: this.econ.densBuilt,
       stonesBuilt: this.econ.stonesBuilt,
+      obelisksBuilt: this.econ.obelisksBuilt,
       wayfarers: this.econ.wayfarers,
       extra,
       current: this.econ.current,
@@ -426,6 +427,7 @@ export class Garden {
       this.econ.ringsBuilt = d.ringsBuilt ?? 0;
       this.econ.densBuilt = d.densBuilt ?? 0;
       this.econ.stonesBuilt = d.stonesBuilt ?? 0;
+      this.econ.obelisksBuilt = d.obelisksBuilt ?? 0;
       this.econ.wayfarers = d.wayfarers ?? 0;
       const bin = atob(d.tiles);
       const tiles = new Uint8Array(SIZE * SIZE);

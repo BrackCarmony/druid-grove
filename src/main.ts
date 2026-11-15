@@ -177,9 +177,20 @@ const fairies = new FairyRings(world, econ, garden, stations, particles);
 scene.add(fairies.group);
 const waystones = new Waystones(world, colliders);
 scene.add(waystones.group);
-// The shop: a great stone obelisk near home.
-const obelisk = new Obelisk(world, colliders);
-scene.add(obelisk.group);
+// The shop: a great stone obelisk near home, and any more raised out in the world.
+const obelisks = [new Obelisk(world, colliders)];
+scene.add(obelisks[0].group);
+/** The obelisk she's standing at, if any. */
+const obeliskHere = () => obelisks.find((o) => o.nearby(player.pos)) ?? null;
+/** Obelisks (the shops) need this much room between them. */
+const OBELISK_SPACING = 40;
+function addObelisk(x: number, z: number) {
+  const glade = world.glades[world.gladeOf[world.tileAt(x, z)]];
+  const o = new Obelisk(world, colliders, x, z, `Obelisk · ${glade.name}`);
+  obelisks.push(o);
+  scene.add(o.group);
+  return o;
+}
 stations.extraHubs = () => waystones.stones.map((w) => ({ x: w.x, z: w.z, label: w.label }));
 
 interface SaveExtra {
@@ -189,6 +200,7 @@ interface SaveExtra {
   dens?: { x: number; z: number }[]; // beyond the home den
   bearHomes?: number[];
   stones?: { x: number; z: number }[]; // beyond the home waystone
+  obelisks?: { x: number; z: number }[]; // beyond the home obelisk
   trampled?: number[]; // tiles whose boulder the stag smashed
   playTime?: number; // seconds played in this world
   timeOfDay?: number; // 0..1 through the day/night cycle
@@ -212,6 +224,7 @@ function loadSlot(i: number) {
     for (const h of extra.hives ?? []) apiary.build(h.x, h.z, h.honey);
     for (const r of extra.rings ?? []) fairies.build(r.x, r.z);
     for (const w of extra.stones ?? []) waystones.build(w.x, w.z);
+    for (const o of extra.obelisks ?? []) addObelisk(o.x, o.z);
     for (const t of extra.trampled ?? []) scenery.smash(t);
     playTime = extra.playTime ?? 0;
   }
@@ -596,8 +609,24 @@ function buildRing() {
 
 function stoneNear(x: number, z: number) {
   for (const w of waystones.stones) if (wdist(w.x, w.z, x, z) < 6) return 'Too close to a waystone';
-  if (wdist(obelisk.x, obelisk.z, x, z) < 7) return 'Too close to the obelisk';
+  for (const o of obelisks) if (wdist(o.x, o.z, x, z) < 7) return 'Too close to an obelisk';
   return null;
+}
+
+function buildObelisk() {
+  if (!econ.has('rake')) return toast('Obelisks need the Rake first.');
+  const p = placement();
+  if (!p) return;
+  const close = obelisks.find((o) => wdist(o.x, o.z, p[0], p[1]) < OBELISK_SPACING);
+  if (close) {
+    chimes.deny();
+    return toast(`Too close to ${close.label}. Obelisks need ${OBELISK_SPACING}m between them.`);
+  }
+  if (!afford(econ.obeliskCost, econ.pollen, 'An obelisk ✿')) return;
+  econ.pollen -= econ.obeliskCost;
+  econ.obelisksBuilt++;
+  const o = addObelisk(p[0], p[1]);
+  built(p[0], p[1], 0x9cf07a, `${o.label} raised! Trade at it just like the one at home.`);
 }
 
 function buildDen() {
@@ -677,6 +706,12 @@ const BUILDS: BuildOption[] = [
     cost: () => (econ.has('rake') ? `✿ ${fmt(econ.stoneCost)}` : 'needs the Rake'),
     ok: () => econ.has('rake') && econ.pollen >= econ.stoneCost,
     build: buildStone,
+  },
+  {
+    name: 'Obelisk',
+    cost: () => (econ.has('rake') ? `✿ ${fmt(econ.obeliskCost)}` : 'needs the Rake'),
+    ok: () => econ.has('rake') && econ.pollen >= econ.obeliskCost,
+    build: buildObelisk,
   },
 ];
 let buildOpen = false;
@@ -795,6 +830,7 @@ function renderCompass() {
       .sort((a, b) => wdist(a.x, a.z, player.pos.x, player.pos.z) - wdist(b.x, b.z, player.pos.x, player.pos.z))
       .slice(0, n);
   for (const w of near(waystones.stones.slice(1), 4)) mark(w.x, w.z, 'stone', '◆');
+  for (const o of near(obelisks.slice(1), 2)) mark(o.x, o.z, 'obelisk', '▲');
   for (const d of near(apiary.dens.slice(1), 3)) mark(d.x, d.z, 'den', '●');
   const hd = Math.round(wdist(player.pos.x, player.pos.z, stations.hollow.x, stations.hollow.z));
   mark(stations.hollow.x, stations.hollow.z, 'home', '⌂', `${fmt(hd)}m`, true);
@@ -956,6 +992,7 @@ function saveNow() {
     dens: apiary.dens.slice(1).map((d) => ({ x: d.x, z: d.z })),
     bearHomes: apiary.bearHomes(),
     stones: waystones.stones.slice(1).map((w) => ({ x: w.x, z: w.z })),
+    obelisks: obelisks.slice(1).map((o) => ({ x: o.x, z: o.z })),
     trampled: [...scenery.trampled],
     playTime,
     timeOfDay: dayNight.time,
@@ -1418,7 +1455,7 @@ addEventListener('keydown', (e) => {
 function useHere() {
   if (menuKind === 'shop' || menuKind === 'travel') return openMenu(null);
   if (menuOpen) return;
-  if (obelisk.nearby(player.pos)) return openMenu('shop');
+  if (obeliskHere()) return openMenu('shop');
   if (waystones.nearby(player.pos)) return openMenu('travel');
   chimes.deny();
   toast('Nothing to use here. Press E at the Verdant Obelisk to trade, or in a waystone to travel.');
@@ -1436,7 +1473,7 @@ const touch = TOUCH
       player,
       playing: () => started && !menuOpen && !ending.active,
       setPlanting: (on) => (mouseDown = on && started && !menuOpen && !ending.active),
-      useLabel: () => (obelisk.nearby(player.pos) ? 'Trade' : waystones.nearby(player.pos) ? 'Travel' : null),
+      useLabel: () => (obeliskHere() ? 'Trade' : waystones.nearby(player.pos) ? 'Travel' : null),
       use: useHere,
       build: () => showBuild(!buildOpen),
       rings: () => openMenu('rings'),
@@ -1555,8 +1592,9 @@ function frame() {
     const ap = apiary.nearby(player.pos);
     const ring = fairies.nearby(player.pos);
     const stone = waystones.nearby(player.pos);
-    if (obelisk.nearby(player.pos)) {
-      stationText = `The Verdant Obelisk · ${say('press E', 'tap Trade')} to trade`;
+    const ob = obeliskHere();
+    if (ob) {
+      stationText = `${ob.label} · ${say('press E', 'tap Trade')} to trade`;
     } else if (stone) {
       // Waystones are seed hubs too.
       econ.refill(1500 * dt);
@@ -1593,7 +1631,7 @@ function frame() {
   perf.mark('fairies');
   hearts.update(time, camera.position);
   waystones.update(time);
-  obelisk.update(time);
+  for (const o of obelisks) o.update(time);
   particles.update(dt, time);
   perf.mark('props');
   world.flush();

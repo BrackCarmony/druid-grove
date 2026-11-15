@@ -7,7 +7,8 @@ import { scaleUV } from './wood';
 import { wdist, World } from './world';
 
 // The Verdant Obelisk: a tall old standing stone near home where the nymph trades pollen and
-// honey for tools, mounts and upgrades (the shop). Press E beside it.
+// honey for tools, mounts and upgrades (the shop). Press E beside it. More can be raised out in
+// the world from the build menu (they open the same shop).
 
 export const OBELISK_X = 0;
 export const OBELISK_Z = 19; // flat, dry ground in the starting glade, clear of the creek
@@ -33,13 +34,17 @@ function shaftGeometry(base: number, top: number, h: number) {
 }
 
 export class Obelisk {
-  readonly x = OBELISK_X;
-  readonly z = OBELISK_Z;
   group = new THREE.Group();
   private capstone: THREE.Mesh;
   private gemMat: THREE.MeshLambertMaterial;
 
-  constructor(world: World, colliders: Colliders) {
+  constructor(
+    world: World,
+    colliders: Colliders,
+    readonly x = OBELISK_X,
+    readonly z = OBELISK_Z,
+    readonly label = 'The Verdant Obelisk',
+  ) {
     const M = stoneMaterials();
     const g = this.group;
     // On the lowest ground under it, with the plinth running deep for higher ground.
