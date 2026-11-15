@@ -727,7 +727,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   // Riding: sit on the mount's back and hold on.
   if (s.riding) {
     // The mount's own gait moves her (she's parented to its back); just sway a little.
-    hipY = s.riding === 'stag' ? 0.1 : 0.44;
+    hipY = s.riding === 'stag' ? 0.1 : 0.2;
     hipRotY = 0;
     hipRotZ = Math.sin(time * 1.3) * 0.02 * idle;
     lean = -0.1;
@@ -745,17 +745,18 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
       pose.lElbow = pose.rElbow = 1.05;
       lean = -0.18;
     } else {
-      // kneeling on the leaf mat, sitting back on her heels, hands resting on her thighs
-      pose.lHip = pose.rHip = 0.12;
-      pose.lHipZ = -0.12;
-      pose.rHipZ = 0.12;
-      pose.lKnee = pose.rKnee = -2.05;
-      pose.lAnkle = pose.rAnkle = -0.5;
-      pose.lSh = pose.rSh = 0.35;
-      pose.lShZ = -0.08;
-      pose.rShZ = 0.08;
-      pose.lElbow = pose.rElbow = 0.75;
-      lean = -0.08;
+      // sitting right back on her heels on the leaf mat (thighs along the mat, shins folded
+      // under, knees a little apart), relaxed, hands resting on her thighs
+      pose.lHip = pose.rHip = 1.42;
+      pose.lHipZ = -0.2;
+      pose.rHipZ = 0.2;
+      pose.lKnee = pose.rKnee = -2.8;
+      pose.lAnkle = pose.rAnkle = -0.15;
+      pose.lSh = pose.rSh = 0.5;
+      pose.lShZ = -0.1;
+      pose.rShZ = 0.1;
+      pose.lElbow = pose.rElbow = 0.55;
+      lean = 0.04;
     }
     pose.headX = 0.05;
     pose.headY = Math.sin(time * 0.4) * 0.2;
@@ -767,7 +768,7 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
   // gallop's rocking, leaning forward and pumping with the stride; her hands ride the
   // mane and her lower legs swing loose. (She faces the other way to the mount, so its
   // pitch and roll read with flipped signs in her frame.)
-  if (s.riding && s.gait) {
+  if (s.riding === 'stag' && s.gait) {
     const G = s.gait;
     const trotting = G.move * (1 - G.gallop);
     const gal = G.gallop;
@@ -790,6 +791,24 @@ export function animateNymph(rig: NymphRig, s: NymphState, dt: number, time: num
     // Her head stays steady, looking ahead past the antlers.
     pose.headX += 0.25 * gal + 0.05 * trotting - Math.sin(G.phase - 0.8) * 0.05 * gal;
     pose.headY *= 1 - G.move;
+  }
+
+  // On the tortoise: an easy ride. She sways with its roll a beat behind (the hips give a
+  // little), nods with each heavy step, and her hands drift on her thighs; standing still she
+  // breathes slowly and looks about (above).
+  if (s.riding === 'tortoise' && s.gait) {
+    const G = s.gait;
+    hipRotZ += G.roll * 0.5 - Math.sin(G.phase - 0.6) * 0.04 * G.move;
+    hipRotX = G.pitch * 0.5;
+    hipY += -G.bob * 0.3 + Math.abs(Math.sin(G.phase - 0.5)) * 0.012 * G.move;
+    lean += Math.sin(G.phase * 2 - 0.7) * 0.03 * G.move;
+    pose.headX += Math.sin(G.phase * 2 - 1.2) * 0.05 * G.move;
+    const drift = Math.sin(G.phase - 0.4) * 0.06 * G.move;
+    pose.lSh += drift;
+    pose.rSh -= drift;
+    pose.lShZ -= Math.sin(time * 0.9) * 0.02;
+    pose.rShZ += Math.sin(time * 0.9 + 1) * 0.02;
+    lean += Math.sin(time * 1.1) * 0.015 * (1 - G.move); // slow breaths
   }
 
   // Rake: carried over the right shoulder (gripped at the chest, the handle resting on top
