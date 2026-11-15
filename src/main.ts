@@ -1168,7 +1168,7 @@ renderSlots();
 const music = (f: string) => import.meta.env.BASE_URL + 'music/' + f;
 // Each song plays its loop twice, then the next song starts.
 const SONGS: Song[] = [
-  // "forest" loops seamlessly end to end.
+  // "forest" plays twice through (each part starts as the one before falls silent).
   { title: 'forest', parts: [{ url: music('forest.mp3') }, { url: music('forest.mp3') }] },
   // Sylvan Waltz, per the composer's notes: intro, then the main loop at 11.08 s; the main loop
   // is re-triggered when it reaches 1:26.08 of its own length (the last ~3 s of each file is a

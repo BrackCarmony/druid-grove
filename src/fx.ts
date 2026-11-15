@@ -95,7 +95,26 @@ const ROCK_BREAK = `${import.meta.env.BASE_URL}sfx/rock-break.mp3`;
 const GROWLS = [1, 2].map((n) => `${import.meta.env.BASE_URL}sfx/bear-growl-${n}.mp3`);
 const SFX_LEVEL = 0.22; // chimes at 100% effects volume
 const MUSIC_LEVEL = 0.55; // the track at 100% music volume
-const SONG_GAP = 4; // seconds of quiet between songs
+const SONG_GAP = 2; // seconds of quiet between songs (after the last one's sound has died away)
+
+/**
+ * Where a track's sound actually ends: the last moment louder than -50 dB. The files end with a
+ * few seconds of fade and digital silence; timing from their full length left long, dead-sounding
+ * gaps between songs.
+ */
+function audibleEnd(buf: AudioBuffer) {
+  const quiet = 0.003;
+  let last = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = d.length - 1; i > last; i--)
+      if (Math.abs(d[i]) > quiet) {
+        last = i;
+        break;
+      }
+  }
+  return Math.min(buf.duration, last / buf.sampleRate + 0.05);
+}
 
 /** A song is one or more audio files scheduled against the song's start. */
 export interface Song {
@@ -116,6 +135,7 @@ export class Chimes {
   private samples = new Map<string, Promise<AudioBuffer>>(); // sound effects (kept)
   private sfxVol = 1;
   private musicVol = 0.5;
+  private nextSongAt = 0; // audio-clock time the next song is due
   private lastBloom = 0;
   private growlUntil = 0; // AudioContext time the current growl ends
   private step = 0;
@@ -286,26 +306,22 @@ export class Chimes {
       for (const url of [...this.buffers.keys()]) if (!keep.has(url)) this.buffers.delete(url);
       for (const p of next.parts) void this.buffer(p.url).catch(() => {});
 
-      const t0 = ctx.currentTime + 0.1;
+      // On time if it's ready (scheduled on the audio clock, not a timer), else as soon as it is.
+      const t0 = Math.max(ctx.currentTime + 0.1, this.nextSongAt);
       let prevEnd = 0;
-      let last: AudioBufferSourceNode | null = null;
-      let lastEnd = -1;
+      let songEnd = 0;
       song.parts.forEach((part, i) => {
-        const at = part.at ?? prevEnd; // no time given: straight after the previous part
+        const at = part.at ?? prevEnd; // no time given: straight after the previous part's sound
         const src = ctx.createBufferSource();
         src.buffer = bufs[i];
         src.connect(this.musicGain!);
         src.start(t0 + at);
-        prevEnd = at + bufs[i].duration;
-        if (prevEnd > lastEnd) {
-          lastEnd = prevEnd;
-          last = src;
-        }
+        prevEnd = at + audibleEnd(bufs[i]);
+        songEnd = Math.max(songEnd, prevEnd);
       });
-      // When the final part (tail included) has rung out, take a breath and play the next song.
-      (last as AudioBufferSourceNode | null)?.addEventListener('ended', () => {
-        setTimeout(() => void this.playNext(), SONG_GAP * 1000);
-      });
+      // The next song starts a breath after this one's sound dies away. Line it up a little early.
+      this.nextSongAt = t0 + songEnd + SONG_GAP;
+      setTimeout(() => void this.playNext(), Math.max(0, this.nextSongAt - ctx.currentTime - 6) * 1000);
     } catch (e) {
       console.warn(`Music failed to load: ${song.title}`, e);
       if (this.songs.length > 1) setTimeout(() => void this.playNext(), 5000);
