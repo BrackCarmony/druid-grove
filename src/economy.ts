@@ -62,7 +62,7 @@ export const MOUNTS: MountDef[] = [
   {
     id: 'tortoise',
     name: 'Mossback Tortoise',
-    blurb: 'Slow and steady. Plants everything it plods over and carries a big seed sack.',
+    blurb: 'Steady and unhurried. Plants everything it plods over and carries a big seed sack.',
     cost: 3000,
     requires: 'rake',
     radius: 3.2,
