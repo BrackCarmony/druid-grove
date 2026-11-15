@@ -206,11 +206,27 @@ interface SaveExtra {
   timeOfDay?: number; // 0..1 through the day/night cycle
   moonRestored?: boolean; // reached 100% and saw the dragon mend the moon
   tips?: number; // how far through the starting tips (TIPS_DONE when finished or hidden)
+  challenges?: Challenges;
+}
+
+/**
+ * Things the player has done at least once in this world, for challenge achievements:
+ * "Home Sweet Home" (never build a waystone), "Lonely Bears" (never hire a bear; the free
+ * ones from the first hive and from dens don't count), "Fairies are Forever" (never remove
+ * a fairy ring).
+ */
+interface Challenges {
+  waystone: boolean;
+  bear: boolean;
+  ringRemoved: boolean;
+  /** Worlds saved before tracking began can't tell whether a ring was ever removed. */
+  ringsUnknown?: boolean;
 }
 
 // The world is generated up front (it's the same planet for every slot); the save
 // for the chosen slot is applied on top when the player picks one on the home screen.
 let activeSlot = -1;
+let challenges: Challenges = { waystone: false, bear: false, ringRemoved: false };
 let loaded: { extra: unknown } | null = null;
 let playTime = 0;
 function loadSlot(i: number) {
@@ -232,6 +248,13 @@ function loadSlot(i: number) {
   moonRestored = extra?.moonRestored ?? false;
   // Worlds from before the tips existed only get them if they've barely started.
   tips.reset(extra?.tips ?? (loaded && econ.lifetimePollen > 500 ? TIPS_DONE : 0));
+  // Older worlds: work out what can be known from what's built and bought.
+  challenges = extra?.challenges ?? {
+    waystone: econ.stonesBuilt > 0,
+    bear: econ.bears > (econ.hivesBuilt > 0 ? 1 : 0) + econ.densBuilt,
+    ringRemoved: false,
+    ...(loaded && econ.ringsBuilt > 0 ? { ringsUnknown: true } : {}),
+  };
   restoreMoon(moonRestored ? 1 : 0);
   // Boulders can't sit inside a den mound (older saves may have some).
   for (const d of apiary.dens) scenery.trample(d.x, d.z, 4.5, () => {});
@@ -456,6 +479,7 @@ function renderShop() {
           if (econ.pollen < econ.bearCost) return;
           econ.pollen -= econ.bearCost;
           econ.bears++;
+          challenges.bear = true;
           apiary.syncBears();
           chimes.growl();
           const den = apiary.bears[apiary.bears.length - 1].den;
@@ -660,6 +684,7 @@ function buildStone() {
   if (!afford(econ.stoneCost, econ.pollen, 'A waystone ✿')) return;
   econ.pollen -= econ.stoneCost;
   econ.stonesBuilt++;
+  challenges.waystone = true;
   const st = waystones.build(p[0], p[1]);
   built(
     p[0],
@@ -921,6 +946,7 @@ function renderRings() {
     const now = finishedRings();
     const refund = ringRefund(now.length);
     for (const r of now) fairies.remove(r);
+    challenges.ringRemoved = true;
     econ.ringsBuilt -= now.length;
     econ.honey += refund;
     chimes.purchase();
@@ -967,6 +993,7 @@ function renderRings() {
         return;
       }
       fairies.remove(r);
+      challenges.ringRemoved = true;
       econ.ringsBuilt--;
       econ.honey += refund;
       chimes.purchase();
@@ -998,6 +1025,7 @@ function saveNow() {
     timeOfDay: dayNight.time,
     moonRestored,
     tips: tips.step,
+    challenges,
   };
   garden.save(player, extra);
   cloud.saved(activeSlot);
@@ -1596,6 +1624,15 @@ function frame() {
       plantTime += dt;
       if (plantTime > 1.5) tips.flag('planted');
     }
+  } // A fairy ring's full reach on the ground: while standing in a ring, and where a new one
+  // would go while the build menu is open (so rings can be spaced out). Fades in and out.
+  {
+    const here = fairies.nearby(player.pos);
+    const planning = buildOpen && econ.has('hive') && garden.aimStatus !== 'none';
+    if (here) cursorUniforms.uZone.value.set(here.x, here.z, econ.ringRadius);
+    else if (planning) cursorUniforms.uZone.value.set(garden.aim.x, garden.aim.z, econ.ringRadius);
+    const show = cursorUniforms.uZoneShow;
+    show.value += ((here || planning ? 1 : 0) - show.value) * Math.min(1, dt * 5);
   }
 
   // Seed refills
@@ -1776,6 +1813,9 @@ frame();
   dayNight,
   chimes,
   tips,
+  get challenges() {
+    return challenges;
+  },
   terrain,
   scenery,
   buildDen,

@@ -28,6 +28,8 @@ export const cursorUniforms = {
   uCursor: { value: new THREE.Vector3(0, 0, 0) }, // x, z, radius
   uCursorState: { value: 0 }, // 0 hidden, 1 ok, 2 blocked
   uCursorGrid: { value: 1 }, // 1 draws the tile edges, 0 just the soft highlight (a setting)
+  uZone: { value: new THREE.Vector3(0, 0, 0) }, // a fairy ring's reach: x, z, radius
+  uZoneShow: { value: 0 }, // 0 hidden .. 1 shown (it fades)
 };
 
 // GLSL helpers for the sky (not periodic; the sky doesn't wrap).
@@ -177,6 +179,8 @@ export function createTerrain(world: World): Terrain {
       uniform vec3 uCursor;
       uniform float uCursorState;
       uniform float uCursorGrid;
+      uniform vec3 uZone;
+      uniform float uZoneShow;
       varying vec3 vWorld;
       varying vec3 vNormal;
       varying float vDist;
@@ -249,6 +253,18 @@ export function createTerrain(world: World): Terrain {
           float edge = (1.0 - smoothstep(0.03, 0.07, e)) * uCursorGrid;
           vec3 hc = uCursorState > 1.5 ? vec3(1.0, 0.45, 0.4) : vec3(1.0, 0.97, 0.75);
           lit = mix(lit, hc, inside * (0.12 + edge * 0.55));
+        }
+
+        // a fairy ring's reach: a faint wash inside and a line round the edge that stays a
+        // couple of pixels wide however far out the camera is
+        if (uZoneShow > 0.001) {
+          vec2 d = p - uZone.xy;
+          d -= uSize * floor(d / uSize + 0.5);
+          float r = length(d);
+          float w = max(fwidth(r) * 1.5, 0.2);
+          float line = 1.0 - smoothstep(w, w * 2.0, abs(r - uZone.z));
+          float inside = 1.0 - smoothstep(uZone.z - w, uZone.z, r);
+          lit = mix(lit, vec3(0.86, 0.68, 1.0), uZoneShow * (inside * 0.1 + line * 0.85));
         }
 
         float fog = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
