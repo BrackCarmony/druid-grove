@@ -93,6 +93,17 @@ export class Garden {
       prev = d;
     }
 
+    this.judgeAim(player);
+  }
+
+  /** Aim straight at a spot on the ground (the pacing bot aims this way instead of with the camera). */
+  aimAt(x: number, z: number, player: THREE.Vector3) {
+    this.aim.set(wrap(x), this.world.heightAt(x, z), wrap(z));
+    this.aimValid = true;
+    this.judgeAim(player);
+  }
+
+  private judgeAim(player: THREE.Vector3) {
     if (!this.aimValid) {
       this.aimStatus = 'none';
       return;

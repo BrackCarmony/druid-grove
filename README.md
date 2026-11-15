@@ -102,6 +102,20 @@ on the droplet, which keeps a year of weekly logs. No IP addresses are stored.
 - `npm run perf:setup`: (re)install the server side from `deploy/` (idempotent).
 - Players can opt out with `?perf=off` (and back in with `?perf=on`). Dev builds don't send.
 
+## Pacing bot
+
+A bot that plays a fresh world on its own, fast-forwarded, to measure pacing: when each tool,
+mount and upgrade gets bought, how fast the planet fills in, and where the dry spells are. It
+drives the real game (movement, planting, the shop's buttons, the build functions) and only
+aims directly at tiles instead of turning a camera. Dev server only; it never saves.
+
+    npm run dev, then open  http://localhost:5179/?bot=1&speed=400&hours=12
+    node scripts/bot-report.mjs        # summary of the newest run in bot-runs/
+
+Options: `speed` (steps of 0.05 s per frame), `hours` (game time to stop at), `seed`,
+`travelzoom=0` (never zoom out to walk faster). It plays near-perfectly (no hesitation, no
+missed clicks), so its times are a lower bound on a real player's.
+
 ## Credits
 
 - Music: "forest" by syncopika (greenbearmusic), from

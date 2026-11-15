@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Apiary } from './apiary';
+import { Bot } from './bot';
 import { Colliders } from './colliders';
 import { Economy, HIVE, MOUNTS, RING, TOOLS, UPGRADES, UpgradeGroup } from './economy';
 import {
@@ -44,6 +45,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 /** Playing with touch controls (phones, tablets). Words for keys say what to tap instead. */
 const TOUCH = wantsTouch();
+const botQuery = new URLSearchParams(location.search);
 const say = (keys: string, touch: string) => (TOUCH ? touch : keys);
 
 /** Worlds copied to the server (see cloud.ts); off until the player turns it on. */
@@ -874,7 +876,7 @@ let mouseDown = false;
 let skipSave = false;
 
 function lock() {
-  if (TOUCH) return; // touch play never captures a mouse
+  if (TOUCH || botQuery.get('bot') === '1') return; // touch play (and the bot) never capture a mouse
   canvas.requestPointerLock?.();
 }
 
@@ -1560,12 +1562,58 @@ addEventListener('resize', () => {
 });
 addEventListener('beforeunload', saveNow);
 
+// ---------- pacing bot (dev only: ?bot=1, see bot.ts) ----------
+const bot =
+  import.meta.env.DEV && botQuery.get('bot') === '1'
+    ? new Bot(
+        {
+          econ,
+          world,
+          garden,
+          player,
+          stations,
+          waystones,
+          apiary,
+          fairies,
+          obelisks: () => obelisks,
+          setMouse: (on) => (mouseDown = on),
+          selectSlot,
+          openShop: () => {
+            if (menuKind !== 'shop') openMenu('shop');
+          },
+          closeMenu: () => openMenu(null),
+          build: (kind, x, z) => {
+            garden.aimAt(x, z, player.pos);
+            const before = econ.cachesBuilt + econ.hivesBuilt + econ.ringsBuilt;
+            ({ cache: buildCache, hive: buildHive, ring: buildRing })[kind]();
+            return econ.cachesBuilt + econ.hivesBuilt + econ.ringsBuilt > before;
+          },
+          canPlace: (x, z) =>
+            stations.canBuildAt(x, z) ?? apiary.canBuildAt(x, z) ?? fairies.canBuildAt(x, z) ?? stoneNear(x, z),
+          planet: () => ({ ...planetProgress(), total: realGlades }),
+          playTime: () => playTime,
+          ended: () => moonRestored,
+        },
+        botQuery,
+      )
+    : null;
+if (bot) {
+  // A fresh world that's never saved, started straight away (no home screen, no tips).
+  skipSave = true;
+  tips.skip();
+  dayNight.time = NEW_WORLD_TIME;
+  started = true;
+  $('start').classList.add('hidden');
+  (window as unknown as { dgBot: Bot }).dgBot = bot;
+}
+
 // ---------- loop ----------
 const clock = new THREE.Clock();
 let saveTimer = 0;
 let hudTimer = 0;
 let shopTimer = 0;
 let wasFull = true;
+let stationText = ''; // what the station line says (worked out each step, shown each frame)
 renderHotbar();
 
 const perf = new Perf(renderer, () => ({
@@ -1585,31 +1633,45 @@ const perf = new Perf(renderer, () => ({
   view: settings.view,
 }));
 let firstFrame = true;
+/** Game time: the sum of steps (frames, or the bot's fast-forward steps). */
+let simTime = 0;
+const BOT_DT = 0.05;
+const BOT_BUDGET_MS = 28; // fast-forward steps per frame stop here, so it still draws
 
 function frame() {
   perf.begin();
-  const dt = Math.min(clock.getDelta(), 0.05);
-  const time = clock.elapsedTime;
-  sharedUniforms.uTime.value = time;
+  const realDt = Math.min(clock.getDelta(), 0.05);
+  if (bot?.fast && started && !ending.active) {
+    const t0 = performance.now();
+    for (let k = 0; k < bot.speed && performance.now() - t0 < BOT_BUDGET_MS; k++) step(BOT_DT);
+  } else step(realDt);
+  present(realDt);
+  perf.end();
+  if (firstFrame) {
+    firstFrame = false;
+    perf.load({ script: tScript, world: tWorld, ready: tReady, firstFrame: performance.now() });
+  }
+  requestAnimationFrame(frame);
+}
+
+/** Advance the game by dt: movement, planting, growth and everything that works on its own. */
+function step(dt: number) {
+  simTime += dt;
+  const time = simTime;
   dayNight.update(dt);
 
   if (ending.active) {
     player.keys.clear(); // she stands and watches
     mouseDown = false;
   }
+  bot?.update(dt);
   if (!menuOpen) player.update(dt, time);
   ending.update(dt); // takes the camera while it plays
   perf.mark('player');
-  // Thin the haze as the camera pulls back so the whole land is visible.
-  const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
-  planetUniforms.uFogD.value = fogD;
-  sharedUniforms.uFogDensity.value = fogD;
-  (scene.fog as THREE.FogExp2).density = fogD;
-  sky.position.set(camera.position.x, 0, camera.position.z);
-  terrain.update(camera);
 
   const mount = econ.mount;
-  garden.updateAim(camera, player.pos);
+  if (bot) bot.aim();
+  else garden.updateAim(camera, player.pos);
   if (mount) {
     // Show the mount's planting footprint instead of the hand cursor.
     cursorUniforms.uCursor.value.set(player.pos.x, player.pos.z, mount.radius);
@@ -1655,7 +1717,7 @@ function frame() {
   // Seed refills
   const seedsBefore = econ.activeSeeds;
   const src = stations.nearby(player.pos);
-  let stationText = '';
+  stationText = '';
   if (src?.kind === 'hollow') {
     econ.refill(1500 * dt);
     stationText = 'Seed Hollow · refilling';
@@ -1710,6 +1772,29 @@ function frame() {
   for (const o of obelisks) o.update(time);
   particles.update(dt, time);
   perf.mark('props');
+
+  if (started) playTime += dt;
+  if (!bot) void cloud.tick();
+  saveTimer += dt;
+  if (saveTimer > 10) {
+    saveTimer = 0;
+    saveNow();
+  }
+  perf.mark('save');
+}
+
+/** Draw: everything that only matters for what's on screen, once per frame. */
+function present(dt: number) {
+  const time = simTime;
+  sharedUniforms.uTime.value = time;
+  const mount = econ.mount;
+  // Thin the haze as the camera pulls back so the whole land is visible.
+  const fogD = THREE.MathUtils.lerp(0.0065, 0.0011, THREE.MathUtils.smoothstep(player.zoom, 5, 250));
+  planetUniforms.uFogD.value = fogD;
+  sharedUniforms.uFogDensity.value = fogD;
+  (scene.fog as THREE.FogExp2).density = fogD;
+  sky.position.set(camera.position.x, 0, camera.position.z);
+  terrain.update(camera);
   world.flush();
   perf.mark('worldFlush');
   flowers.update(camera, time);
@@ -1788,24 +1873,10 @@ function frame() {
     if (toastTimer <= 0) $('toast').classList.remove('show');
   }
 
-  if (started) playTime += dt;
-  void cloud.tick();
-  saveTimer += dt;
-  if (saveTimer > 10) {
-    saveTimer = 0;
-    saveNow();
-  }
-  perf.mark('save');
-
+  bot?.drawOverlay();
   planetizeTree(scene); // new objects pick up the planet wrap + curve before they draw
   perf.mark('planetize');
   perf.render(scene, camera);
-  perf.end();
-  if (firstFrame) {
-    firstFrame = false;
-    perf.load({ script: tScript, world: tWorld, ready: tReady, firstFrame: performance.now() });
-  }
-  requestAnimationFrame(frame);
 }
 frame();
 
