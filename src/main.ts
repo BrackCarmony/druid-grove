@@ -34,7 +34,7 @@ import { createSky, restoreMoon } from './sky';
 import { Ending } from './ending';
 import { Obelisk } from './obelisk';
 import { Stations } from './stations';
-import { createTerrain, cursorUniforms, FOG_HEX, sharedUniforms } from './terrain';
+import { createTerrain, cursorUniforms, FOG_HEX, MAX_ZONES, sharedUniforms } from './terrain';
 import { HALF, SOIL_NAMES, Soil, wdist, World, wrap } from './world';
 
 /** Inline icons (drawn in style.css). */
@@ -1624,15 +1624,32 @@ function frame() {
       plantTime += dt;
       if (plantTime > 1.5) tips.flag('planted');
     }
-  } // A fairy ring's full reach on the ground: while standing in a ring, and where a new one
-  // would go while the build menu is open (so rings can be spaced out). Fades in and out.
+  }
+
+  // Fairy rings' reach on the ground: all of them, while standing in a ring or while the build
+  // menu is open (aiming shows where a new one would reach, in green), so rings can be spaced
+  // out. Fades in and out.
   {
     const here = fairies.nearby(player.pos);
-    const planning = buildOpen && econ.has('hive') && garden.aimStatus !== 'none';
-    if (here) cursorUniforms.uZone.value.set(here.x, here.z, econ.ringRadius);
-    else if (planning) cursorUniforms.uZone.value.set(garden.aim.x, garden.aim.z, econ.ringRadius);
-    const show = cursorUniforms.uZoneShow;
-    show.value += ((here || planning ? 1 : 0) - show.value) * Math.min(1, dt * 5);
+    const planning = buildOpen && econ.has('hive');
+    const aiming = planning && garden.aimStatus !== 'none';
+    const u = cursorUniforms;
+    if (here || planning) {
+      // The nearest rings, if there are ever more than the shader takes.
+      const rings =
+        fairies.rings.length > MAX_ZONES
+          ? [...fairies.rings]
+              .sort((a, b) => wdist(a.x, a.z, player.pos.x, player.pos.z) - wdist(b.x, b.z, player.pos.x, player.pos.z))
+              .slice(0, MAX_ZONES)
+          : fairies.rings;
+      rings.forEach((r, k) => u.uZones.value[k].set(r.x, r.z));
+      u.uZoneCount.value = rings.length;
+      u.uZoneR.value = econ.ringRadius;
+      if (aiming) u.uZoneHi.value.set(garden.aim.x, garden.aim.z, 1);
+      else if (here) u.uZoneHi.value.set(here.x, here.z, 0.5);
+      else u.uZoneHi.value.z = 0; // zoomed out too far to aim: just the rings there are
+    }
+    u.uZoneShow.value += ((here || planning ? 1 : 0) - u.uZoneShow.value) * Math.min(1, dt * 5);
   }
 
   // Seed refills

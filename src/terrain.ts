@@ -24,11 +24,18 @@ export const lightUniforms = {
   uStars: { value: 1 },
 };
 
+export const MAX_ZONES = 64;
+
 export const cursorUniforms = {
   uCursor: { value: new THREE.Vector3(0, 0, 0) }, // x, z, radius
   uCursorState: { value: 0 }, // 0 hidden, 1 ok, 2 blocked
   uCursorGrid: { value: 1 }, // 1 draws the tile edges, 0 just the soft highlight (a setting)
-  uZone: { value: new THREE.Vector3(0, 0, 0) }, // a fairy ring's reach: x, z, radius
+  // Fairy rings' reach, drawn on the ground: every ring (up to MAX_ZONES), plus one highlighted
+  // (the ring she's standing in, or where a new one would go).
+  uZones: { value: Array.from({ length: MAX_ZONES }, () => new THREE.Vector2()) },
+  uZoneCount: { value: 0 },
+  uZoneR: { value: 0 }, // reach (every ring shares it)
+  uZoneHi: { value: new THREE.Vector3(0, 0, 0) }, // x, z, and 1 = a ring being placed, 0.5 = the one she's in
   uZoneShow: { value: 0 }, // 0 hidden .. 1 shown (it fades)
 };
 
@@ -179,7 +186,10 @@ export function createTerrain(world: World): Terrain {
       uniform vec3 uCursor;
       uniform float uCursorState;
       uniform float uCursorGrid;
-      uniform vec3 uZone;
+      uniform vec2 uZones[${MAX_ZONES}];
+      uniform int uZoneCount;
+      uniform float uZoneR;
+      uniform vec3 uZoneHi;
       uniform float uZoneShow;
       varying vec3 vWorld;
       varying vec3 vNormal;
@@ -258,13 +268,28 @@ export function createTerrain(world: World): Terrain {
         // a fairy ring's reach: a faint wash inside and a line round the edge that stays a
         // couple of pixels wide however far out the camera is
         if (uZoneShow > 0.001) {
-          vec2 d = p - uZone.xy;
-          d -= uSize * floor(d / uSize + 0.5);
-          float r = length(d);
-          float w = max(fwidth(r) * 1.5, 0.2);
-          float line = 1.0 - smoothstep(w, w * 2.0, abs(r - uZone.z));
-          float inside = 1.0 - smoothstep(uZone.z - w, uZone.z, r);
-          lit = mix(lit, vec3(0.86, 0.68, 1.0), uZoneShow * (inside * 0.1 + line * 0.85));
+          float w = max(length(fwidth(p)) * 1.5, 0.2);
+          float inside = 0.0;
+          float line = 0.0;
+          for (int k = 0; k < ${MAX_ZONES}; k++) {
+            if (k >= uZoneCount) break;
+            vec2 d = p - uZones[k];
+            d -= uSize * floor(d / uSize + 0.5);
+            float r = length(d);
+            line = max(line, 1.0 - smoothstep(w, w * 2.0, abs(r - uZoneR)));
+            inside = max(inside, 1.0 - smoothstep(uZoneR - w, uZoneR, r));
+          }
+          lit = mix(lit, vec3(0.86, 0.68, 1.0), uZoneShow * (inside * 0.1 + line * 0.7));
+          // The highlighted one: the ring she's in, or the new one being placed (in green).
+          if (uZoneHi.z > 0.0) {
+            vec2 d = p - uZoneHi.xy;
+            d -= uSize * floor(d / uSize + 0.5);
+            float r = length(d);
+            float hl = 1.0 - smoothstep(w * 1.5, w * 3.0, abs(r - uZoneR));
+            float hin = 1.0 - smoothstep(uZoneR - w, uZoneR, r);
+            vec3 hc = uZoneHi.z > 0.75 ? vec3(0.7, 1.0, 0.6) : vec3(0.95, 0.85, 1.0);
+            lit = mix(lit, hc, uZoneShow * (hin * 0.08 + hl * 0.9));
+          }
         }
 
         float fog = 1.0 - exp(-uFogDensity*uFogDensity*vDist*vDist);
