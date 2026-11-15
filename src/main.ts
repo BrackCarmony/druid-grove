@@ -929,6 +929,23 @@ function ringRefund(n: number) {
 
 const finishedRings = () => fairies.rings.filter((r) => r.left === 0 && r.locked === 0);
 
+/** Take up every ring with nothing left to plant, refunding their honey. Returns how many. */
+function removeFinishedRings() {
+  fairies.refreshCounts();
+  const now = finishedRings();
+  if (!now.length) return 0;
+  const refund = ringRefund(now.length);
+  for (const r of now) fairies.remove(r);
+  challenges.ringRemoved = true;
+  econ.ringsBuilt -= now.length;
+  econ.honey += refund;
+  chimes.purchase();
+  toast(
+    `${now.length} finished ring${now.length === 1 ? '' : 's'} removed. ${HONEY} ${fmt(refund)} returned. Build them somewhere new with R.`,
+  );
+  return now.length;
+}
+
 function renderRings() {
   fairies.refreshCounts();
   // Remove every finished ring in one go (two clicks).
@@ -944,17 +961,7 @@ function renderRings() {
       clear.textContent = `Click again to remove ${done.length} ring${rs}`;
       return;
     }
-    fairies.refreshCounts();
-    const now = finishedRings();
-    const refund = ringRefund(now.length);
-    for (const r of now) fairies.remove(r);
-    challenges.ringRemoved = true;
-    econ.ringsBuilt -= now.length;
-    econ.honey += refund;
-    chimes.purchase();
-    toast(
-      `${now.length} finished ring${now.length === 1 ? '' : 's'} removed. ${HONEY} ${fmt(refund)} returned. Build them somewhere new with R.`,
-    );
+    removeFinishedRings();
     renderRings();
   };
   const list = $('rings-list');
@@ -1584,15 +1591,18 @@ const bot =
           closeMenu: () => openMenu(null),
           build: (kind, x, z) => {
             garden.aimAt(x, z, player.pos);
-            const before = econ.cachesBuilt + econ.hivesBuilt + econ.ringsBuilt;
-            ({ cache: buildCache, hive: buildHive, ring: buildRing })[kind]();
-            return econ.cachesBuilt + econ.hivesBuilt + econ.ringsBuilt > before;
+            const count = () => econ.cachesBuilt + econ.hivesBuilt + econ.ringsBuilt + econ.stonesBuilt;
+            const before = count();
+            ({ cache: buildCache, hive: buildHive, ring: buildRing, waystone: buildStone })[kind]();
+            return count() > before;
           },
           canPlace: (x, z) =>
             stations.canBuildAt(x, z) ?? apiary.canBuildAt(x, z) ?? fairies.canBuildAt(x, z) ?? stoneNear(x, z),
           planet: () => ({ ...planetProgress(), total: realGlades }),
           playTime: () => playTime,
           ended: () => moonRestored,
+          travel,
+          removeFinishedRings,
         },
         botQuery,
       )

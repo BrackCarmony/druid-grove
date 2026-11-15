@@ -1,11 +1,11 @@
 import type { Apiary } from './apiary';
-import { Economy, MOUNTS, TOOLS, UPGRADES } from './economy';
+import { Economy, MOUNTS, SOILS, TOOLS, UPGRADES } from './economy';
 import type { FairyRings } from './fairies';
 import type { Garden } from './garden';
 import type { Obelisk } from './obelisk';
 import type { Player } from './player';
 import type { Stations } from './stations';
-import type { Waystones } from './waystones';
+import type { Waystone, Waystones } from './waystones';
 import { Glade, HALF, Soil, tileIndex, wdist, World, wrap } from './world';
 
 // The pacing bot: plays a fresh world on its own, fast-forwarded, the way a sensible player
@@ -42,9 +42,12 @@ export interface BotHost {
   planet(): { pct: number; done: number; total: number };
   playTime(): number;
   ended(): boolean;
+  travel(st: Waystone): void;
+  /** Take up the fairy rings with nothing left to do (refunding honey). Returns how many. */
+  removeFinishedRings(): number;
 }
 
-type BuildKind = 'cache' | 'hive' | 'ring';
+type BuildKind = 'cache' | 'hive' | 'ring' | 'waystone';
 type Mode = 'plant' | 'toRefill' | 'refill' | 'toShop' | 'toBuild' | 'idle';
 
 interface Want {
@@ -60,7 +63,7 @@ interface Want {
 
 export interface BotEvent {
   t: number; // game seconds
-  type: 'buy' | 'build' | 'glade' | 'end' | 'stop' | 'note';
+  type: 'buy' | 'build' | 'recall' | 'travel' | 'glade' | 'end' | 'stop' | 'note';
   name: string;
   cost?: number;
   currency?: string;
@@ -93,6 +96,7 @@ export interface BotReport {
   /** Game seconds spent in each activity. */
   modes: Record<string, number>;
   stuck: number;
+  travels?: number;
 }
 
 const MILESTONES = new Set(['glove', 'rake', 'tortoise', 'worms', 'moss', 'stag']);
@@ -133,6 +137,8 @@ export class Bot {
   private refillLast = 0;
   private want: Want | null = null;
   private wantT = 0;
+  private ringCheck = 0;
+  private travels = 0;
   private lastGlades = 0;
   private snapT = 0;
   private realStart = performance.now();
@@ -187,8 +193,37 @@ export class Bot {
     });
   }
 
-  /** Walk (or ride) toward a spot. Returns true once within r. */
-  private moveTo(x: number, z: number, r: number, dt: number) {
+  /**
+   * Head for a spot, going by waystone when that's much shorter. Returns true once within r.
+   * `cruise` (m/s) keeps going at that speed instead of slowing to stop on the spot.
+   */
+  private go(x: number, z: number, r: number, dt: number, cruise?: number) {
+    const stones = this.h.waystones.stones;
+    const d = this.dist(x, z);
+    if (stones.length > 1 && d > 60) {
+      let a = stones[0];
+      let b = stones[0];
+      for (const s of stones) {
+        if (this.dist(s.x, s.z) < this.dist(a.x, a.z)) a = s;
+        if (wdist(s.x, s.z, x, z) < wdist(b.x, b.z, x, z)) b = s;
+      }
+      if (a !== b && this.dist(a.x, a.z) + wdist(b.x, b.z, x, z) + 20 < d) {
+        if (this.h.waystones.nearby(this.pos) === a) {
+          this.h.travel(b);
+          this.travels++;
+          this.bestD = Infinity;
+          return false;
+        }
+        const [ax, az] = this.h.waystones.arrival(a);
+        this.moveTo(ax, az, 0.8, dt);
+        return false;
+      }
+    }
+    return this.moveTo(x, z, r, dt, cruise);
+  }
+
+  /** Walk (or ride) straight toward a spot. Returns true once within r. */
+  private moveTo(x: number, z: number, r: number, dt: number, cruise?: number) {
     const p = this.h.player;
     const dx = wrap(x - p.pos.x);
     const dz = wrap(z - p.pos.z);
@@ -205,7 +240,15 @@ export class Bot {
     p.yaw = Math.atan2(-dx, -dz);
     // Run when far; ease off the stick close in so a heavy mount doesn't overshoot and circle.
     p.stickRun = d > 10;
-    const push = Math.min(1, Math.max(0.3, (d - r) / 5));
+    let push = Math.min(1, Math.max(0.3, (d - r) / 5));
+    if (cruise !== undefined) {
+      // Hold a steady speed: slow enough for the ground to take seed as it passes under.
+      const m = this.h.econ.mount;
+      const zf = 1 + Math.min(p.zoom, 60) / 30;
+      const walk = (m ? m.speed : 4.2) * zf;
+      p.stickRun = cruise >= walk;
+      push = p.stickRun ? 1 : Math.min(1, Math.max(0.3, cruise / walk));
+    }
     // Not getting closer: hop and sidestep round whatever's in the way.
     if (d < this.bestD - 0.5) {
       this.bestD = d;
@@ -281,6 +324,14 @@ export class Bot {
       if (hive)
         add({ kind: 'build', name: 'Beehive', build: 'hive', cost: e.hiveCost, currency: 'pollen', at: hive }, 0.6);
     }
+    if (e.has('rake')) {
+      const stone = this.stoneSpot();
+      if (stone)
+        add(
+          { kind: 'build', name: 'Waystone', build: 'waystone', cost: e.stoneCost, currency: 'pollen', at: stone },
+          0.5,
+        );
+    }
     if (e.has('hive')) {
       const ring = this.ringSpot();
       if (ring)
@@ -298,6 +349,14 @@ export class Bot {
     const [x, z] = [g.seedX, g.seedZ];
     if (this.nearestRefill(x, z, true).d < 45) return null;
     return this.clearSpot(x, z, (px, pz) => this.h.stations.canBuildAt(px, pz));
+  }
+
+  /** A waystone where she's working, if the nearest bottomless refill is a long way off. */
+  private stoneSpot(): [number, number] | null {
+    const g = this.focus;
+    if (!g) return null;
+    if (this.nearestBottomless(g.seedX, g.seedZ).d < 80) return null;
+    return this.clearSpot(g.seedX, g.seedZ, (px, pz) => this.h.waystones.canBuildAt(px, pz));
   }
 
   /** A hive in a restored glade without one, nearest home. */
@@ -328,19 +387,38 @@ export class Bot {
     const e = this.h.econ;
     const rings = this.h.fairies.rings;
     const R = e.ringRadius;
+    // The most bare, workable ground in reach, a little favouring places nearby.
     let best: Glade | null = null;
-    let bd = Infinity;
+    let bs = 0;
     for (const g of w.glades) {
       if (g.completed || g.total < 200 || !e.canWork(g.soil)) continue;
       if (rings.some((r) => wdist(r.x, r.z, g.seedX, g.seedZ) < R * 1.3)) continue;
-      const d = this.dist(g.seedX, g.seedZ);
-      if (d < bd) {
-        bd = d;
+      const s = this.bareNear(g.seedX, g.seedZ, R) / (1 + this.dist(g.seedX, g.seedZ) / 300);
+      if (s > bs) {
+        bs = s;
         best = g;
       }
     }
-    if (!best) return null;
+    if (!best || bs < 300) return null;
     return this.clearSpot(best.seedX, best.seedZ, (px, pz) => this.h.fairies.canBuildAt(px, pz));
+  }
+
+  /** Roughly how many workable bare tiles lie within r (by 32 m chunk). */
+  private bareNear(x: number, z: number, r: number) {
+    const w = this.h.world;
+    const e = this.h.econ;
+    const NB = 1024 / 32;
+    const ci = Math.floor((x + HALF) / 32);
+    const cj = Math.floor((z + HALF) / 32);
+    const k = Math.ceil(r / 32);
+    let n = 0;
+    for (let dj = -k; dj <= k; dj++)
+      for (let di = -k; di <= k; di++) {
+        if ((di * di + dj * dj) * 1024 > r * r + 2048) continue;
+        const c = ((((cj + dj) % NB) + NB) % NB) * NB + ((((ci + di) % NB) + NB) % NB);
+        for (const soil of [Soil.Dirt, Soil.Clay, Soil.Stone]) if (e.canWork(soil)) n += w.remaining[c * 3 + soil];
+      }
+    return n;
   }
 
   /** The nearest spot to (x, z) that's dry ground and passes a check (tries a spiral). */
@@ -363,17 +441,35 @@ export class Bot {
 
   // ---------- refills ----------
 
-  private nearestRefill(x: number, z: number, anyStock = false) {
+  /** Seeds it would take to fill the satchel and every mount's sack. */
+  private get need() {
+    const e = this.h.econ;
+    let n = Math.max(0, e.seedCap - e.seeds);
+    for (const m of MOUNTS) if (e.mounts.has(m.id)) n += Math.max(0, e.mountCap(m) - (e.mountSeeds[m.id] ?? 0));
+    return n;
+  }
+
+  /** The nearest refill that never runs dry: the Seed Hollow or a waystone. */
+  private nearestBottomless(x: number, z: number) {
     const st = this.h.stations;
     let best = { x: st.hollow.x, z: st.hollow.z, d: wdist(st.hollow.x, st.hollow.z, x, z), r: 3 };
+    for (const s of this.h.waystones.stones) {
+      const [ax, az] = this.h.waystones.arrival(s);
+      const d = wdist(ax, az, x, z);
+      if (d < best.d) best = { x: ax, z: az, d, r: 0.8 };
+    }
+    return best;
+  }
+
+  /** The nearest refill worth the trip: bottomless, or a cache holding most of what's needed. */
+  private nearestRefill(x: number, z: number, anyStock = false) {
+    const st = this.h.stations;
+    let best = this.nearestBottomless(x, z);
+    const need = this.need;
     for (const c of st.caches) {
-      if (!anyStock && c.stock < 60) continue;
+      if (!anyStock && c.stock < Math.min(need * 0.6, this.h.econ.cacheStockCap * 0.5)) continue;
       const d = wdist(c.x, c.z, x, z);
       if (d < best.d) best = { x: c.x, z: c.z, d, r: 1.5 };
-    }
-    for (const s of this.h.waystones.stones) {
-      const d = wdist(s.x, s.z, x, z);
-      if (d < best.d) best = { x: s.x, z: s.z, d, r: 1.2 };
     }
     return best;
   }
@@ -397,8 +493,11 @@ export class Bot {
     this.focus = best;
   }
 
-  /** The nearest bare tile of the focus glade. */
-  private findTile(): number {
+  /**
+   * The nearest bare tile of the focus glade. Riding, it skips what's already under the mount
+   * and leans toward what's ahead, so it sweeps along instead of stopping on every tile.
+   */
+  private findTile(skip = 0): number {
     const g = this.focus;
     if (!g) return -1;
     const w = this.h.world;
@@ -408,21 +507,33 @@ export class Bot {
     const cj = Math.floor(g.seedZ + HALF);
     const px = this.pos.x;
     const pz = this.pos.z;
+    const v = this.h.player.vel;
+    const sp = Math.hypot(v.x, v.z);
+    const fx = sp > 0.5 ? v.x / sp : 0;
+    const fz = sp > 0.5 ? v.z / sp : 0;
     let best = -1;
     let bd = Infinity;
+    let near = -1;
+    let nd = Infinity;
     for (let j = cj - UNWORKED_SCAN_R; j <= cj + UNWORKED_SCAN_R; j++) {
       for (let i = ci - UNWORKED_SCAN_R; i <= ci + UNWORKED_SCAN_R; i++) {
         const t = tileIndex(i, j);
         if (w.gladeOf[t] !== g.id || !w.isPlantable(t) || this.blocked.has(t)) continue;
         const [x, z] = w.tileCenter(t);
         const d = wdist(px, pz, x, z);
-        if (d < bd) {
-          bd = d;
+        if (d < nd) {
+          nd = d;
+          near = t;
+        }
+        if (d < skip) continue;
+        const s = d - (skip ? (wrap(x - px) * fx + wrap(z - pz) * fz) * 0.6 : 0);
+        if (s < bd) {
+          bd = s;
           best = t;
         }
       }
     }
-    return best;
+    return best >= 0 ? best : near;
   }
 
   private plant(dt: number) {
@@ -440,8 +551,8 @@ export class Bot {
     this.retarget -= dt;
     if (this.target < 0 || !w.isPlantable(this.target) || this.retarget <= 0) {
       const prev = this.target;
-      this.target = this.findTile();
-      this.retarget = 0.5;
+      this.target = this.findTile(e.mount ? e.mount.radius * 0.7 : 0);
+      this.retarget = e.mount ? 0.25 : 0.5;
       if (this.target !== prev) {
         this.fails = 0;
         this.bestD = Infinity;
@@ -463,13 +574,23 @@ export class Bot {
     }
     const [x, z] = w.tileCenter(this.target);
     if (e.riding) {
-      // The mount plants all round itself: drive over the tile and wait there till it takes.
+      // The mount plants all round itself: sweep over the ground, only as fast as the soil
+      // takes seed in the time it spends under the mount (zoomed out, like a player riding).
       h.setMouse(false);
-      this.moveTo(x, z, 0.8, dt);
-      h.player.zoomTarget = this.dist(x, z) > 40 && this.travelZoom ? 60 : 4;
+      const m = e.mount!;
+      const soil = w.soil[this.target] as Soil;
+      const cruise = ((2 * m.radius * e.mountPower(m)) / SOILS[soil].hardness) * 0.8;
+      if (this.dist(x, z) > 60) this.go(x, z, 0, dt, cruise);
+      else this.moveTo(x, z, 0, dt, cruise);
+      h.player.zoomTarget = this.travelZoom ? 60 : 4;
       return 'plant';
     }
     const reach = e.reach + e.tool.radius;
+    if (this.dist(x, z) > 60) {
+      h.setMouse(false);
+      this.go(x, z, 0, dt);
+      return 'plant';
+    }
     if (this.moveTo(x, z, Math.max(1, reach - 0.8), dt)) {
       h.player.zoomTarget = 4;
       h.setMouse(true);
@@ -502,6 +623,17 @@ export class Bot {
     if (!e.riding) {
       const tool = [...TOOLS].reverse().find((t) => e.tools.has(t.id))!;
       if (e.current !== tool.id) h.selectSlot(TOOLS.indexOf(tool));
+    }
+
+    // Take up rings that have finished their ground, to put them down somewhere new.
+    this.ringCheck -= dt;
+    if (this.ringCheck <= 0) {
+      this.ringCheck = 20;
+      const n = h.removeFinishedRings();
+      if (n) {
+        this.log('recall', `${n} finished ring${n === 1 ? '' : 's'}`);
+        this.wantT = 0;
+      }
     }
 
     // Rethink what to buy now and then.
@@ -552,7 +684,7 @@ export class Bot {
   private goRefill(dt: number): Mode {
     const r = this.nearestRefill(this.pos.x, this.pos.z);
     this.h.setMouse(false);
-    if (this.moveTo(r.x, r.z, r.r, dt)) {
+    if (this.go(r.x, r.z, r.r, dt)) {
       this.refillWait = 0;
       this.refillLast = this.h.econ.activeSeeds;
       return 'refill';
@@ -583,7 +715,7 @@ export class Bot {
       const dx = wrap(this.pos.x - ob.x);
       const dz = wrap(this.pos.z - ob.z);
       const d = Math.hypot(dx, dz) || 1;
-      this.moveTo(ob.x + (dx / d) * 3.2, ob.z + (dz / d) * 3.2, 0.8, dt);
+      this.go(ob.x + (dx / d) * 3.2, ob.z + (dz / d) * 3.2, 0.8, dt);
       return 'toShop';
     }
     this.stop();
@@ -622,7 +754,7 @@ export class Bot {
     const at = want.at!;
     this.dest = at;
     this.h.setMouse(false);
-    if (!this.moveTo(at[0], at[1], 2, dt)) {
+    if (!this.go(at[0], at[1], 2, dt)) {
       // Can't get there (or keeps missing): try somewhere else.
       if (this.fails > 4) {
         this.fails = 0;
@@ -653,6 +785,7 @@ export class Bot {
     this.stop();
     this.log(ended ? 'end' : 'stop', ended ? 'planet restored' : `stopped at ${this.hours} h`);
     this.report.finished = ended;
+    this.report.travels = this.travels;
     this.report.realSeconds = Math.round((performance.now() - this.realStart) / 1000);
     this.report.gameSeconds = Math.round(this.h.playTime());
     this.drawOverlay();
