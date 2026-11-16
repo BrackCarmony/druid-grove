@@ -914,7 +914,7 @@ function renderCompass() {
 // ---------- input ----------
 /** Any full-screen menu is open (the game pauses input while one is). */
 let menuOpen = false;
-type MenuKind = 'shop' | 'rings' | 'travel' | 'pause';
+type MenuKind = 'shop' | 'rings' | 'travel' | 'pause' | 'thanks';
 let pausedAt = 0; // when the Esc menu last opened (see the Escape handling below)
 let escClosedAt = -1e9; // when Esc last closed a menu (that Esc mustn't also open the pause menu)
 let menuKind: MenuKind | null = null;
@@ -935,6 +935,7 @@ function openMenu(kind: MenuKind | null) {
   $('rings').classList.toggle('hidden', kind !== 'rings');
   $('travel').classList.toggle('hidden', kind !== 'travel');
   $('pause').classList.toggle('hidden', kind !== 'pause');
+  $('thanks').classList.toggle('hidden', kind !== 'thanks');
   if (kind === 'pause') {
     pausedAt = performance.now();
     showPauseMain();
@@ -1505,7 +1506,13 @@ function playEnding() {
   if (menuOpen) openMenu(null);
   showBuild(false);
   // Named for whoever she (or he) is playing: a nymph or a sylvan.
-  ending.play(() => toast(`The moon is whole again. Thank you, little ${BODY_NAMES[look.body].toLowerCase()}.`));
+  ending.play(() => {
+    // Once the white has faded: a thank-you card (with the Ko-fi link), which frees the mouse.
+    $('thanks-kind').textContent = BODY_NAMES[look.body].toLowerCase();
+    setTimeout(() => {
+      if (!ending.active && !menuOpen && started && !bot) openMenu('thanks');
+    }, 1800);
+  });
 }
 
 /** A brand-new player's first world waits here while they make their character. */

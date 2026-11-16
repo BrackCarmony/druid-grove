@@ -251,6 +251,7 @@ body {
 #rings,
 #travel,
 #pause,
+#thanks,
 #start {
   position: fixed;
   inset: 0;
@@ -1225,9 +1226,21 @@ body:not(.cinematic) #ending .skip {
   gap: 10px;
   margin-bottom: 12px;
 }
-.pause-buttons button {
+.pause-buttons button,
+.pause-buttons .button-link {
   width: 100%;
   padding: 12px;
+}
+a.button-link {
+  display: block;
+  border-radius: 10px;
+  background: var(--leaf);
+  color: #1d2b14;
+  font-weight: 600;
+  text-decoration: none;
+}
+a.button-link:hover {
+  filter: brightness(1.08);
 }
 
 /* ---------- shop pages ---------- */
