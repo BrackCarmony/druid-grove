@@ -8,6 +8,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "deploy": "./scripts/deploy.sh",
+    "build:itch": "./scripts/build-itch.sh",
     "perf": "./scripts/perf-pull.sh && node scripts/perf-report.mjs",
     "perf:report": "node scripts/perf-report.mjs",
     "perf:setup": "./scripts/setup-perf-server.sh"

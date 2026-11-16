@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-itch
+druid-grove-itch.zip
 .DS_Store
 perf-data
 bot-runs/

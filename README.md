@@ -102,6 +102,13 @@ on the droplet, which keeps a year of weekly logs. No IP addresses are stored.
 - `npm run perf:setup`: (re)install the server side from `deploy/` (idempotent).
 - Players can opt out with `?perf=off` (and back in with `?perf=on`). Dev builds don't send.
 
+## itch.io build
+
+`npm run build:itch` writes `druid-grove-itch.zip`: the game with relative paths and
+`index.html` at the top, ready to upload as an HTML5 game. itch serves it from its own domain,
+so cloud saves (hidden in that build) and perf reports (off) don't run there; worlds are saved
+in the player's browser only.
+
 ## Pacing bot
 
 A bot that plays a fresh world on its own, fast-forwarded, to measure pacing: when each tool,

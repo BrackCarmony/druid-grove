@@ -46,6 +46,9 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getEleme
 
 /** Playing with touch controls (phones, tablets). Words for keys say what to tap instead. */
 const TOUCH = wantsTouch();
+// The itch.io build (npm run build:itch) is served from itch's domain, so the game's server
+// (cloud saves) isn't reachable from it: that option is hidden there.
+if (import.meta.env.MODE === 'itch') document.body.classList.add('itch');
 const botQuery = new URLSearchParams(location.search);
 const say = (keys: string, touch: string) => (TOUCH ? touch : keys);
 

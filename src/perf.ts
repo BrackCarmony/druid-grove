@@ -112,7 +112,8 @@ export class Perf {
       off = localStorage.getItem('dg-perf-off') === '1';
     } catch {}
     // Only the deployed build reports; in dev, ?perf=on sends to the dev server (which 404s) for testing.
-    this.enabled = !off && (import.meta.env.PROD || q === 'on');
+    // The itch.io build never reports (it's served from itch's domain, not the game's server).
+    this.enabled = !off && import.meta.env.MODE !== 'itch' && (import.meta.env.PROD || q === 'on');
     addEventListener('resize', () => {
       this.ctx.w = innerWidth;
       this.ctx.h = innerHeight;

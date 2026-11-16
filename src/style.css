@@ -381,6 +381,10 @@ button.remove {
 }
 
 /* ---------- Title screen ---------- */
+body.itch #open-cloud,
+body.itch #cloud-line {
+  display: none;
+}
 #start {
   background: #120c1c;
   overflow: hidden;
