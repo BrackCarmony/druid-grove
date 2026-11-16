@@ -179,27 +179,34 @@
       </div>
     </div>
 
+    <!-- Title screen: painted key art, the logo and a menu; everything else opens as a card over it. -->
     <div id="start">
-      <div class="start-inner">
-        <h1>Druid Grove</h1>
-        <div id="home-main">
-          <p>
-            The moon broke and the whole planet went grey. You are the last <span id="intro-kind">wood nymph</span>,
-            with a pocketful of seeds and a pair of tweezers. When your satchel runs dry, head back to the glowing Seed
-            Hollow or any waystone you have raised.
-          </p>
+      <div class="title-art" aria-hidden="true">
+        <img src="/title/key-art.jpg" alt="" />
+        <div class="motes"></div>
+      </div>
+      <div id="home-main">
+        <h1 class="title-logo"><img src="/title/logo.png" alt="Druid Grove" /></h1>
+        <nav class="title-nav">
+          <button id="title-continue" class="hidden">Continue</button>
+          <button id="title-start">Start</button>
+          <button id="open-look">Customize</button>
+          <button id="open-cloud">Cloud save</button>
+          <button id="open-settings">Settings</button>
+          <button id="open-credits">Credits</button>
+        </nav>
+        <p class="small" id="cloud-line"></p>
+      </div>
+
+      <div class="start-inner hidden" id="home-card">
+        <div id="home-worlds" class="home-panel hidden">
+          <h2>Choose a world</h2>
           <div id="slots"></div>
-          <p class="small" id="cloud-line"></p>
-          <div class="home-links">
-            <button class="link" id="open-look">Customize</button>
-            <button class="link" id="open-cloud">Cloud save</button>
-            <button class="link" id="open-settings">Settings</button>
-            <button class="link" id="open-credits">Credits</button>
-          </div>
-          <p class="small kbd-only">Pick a world to play. Click captures the mouse; Esc releases it.</p>
+          <p class="small kbd-only">Click captures the mouse; Esc releases it.</p>
           <p class="small touch-only">
-            Pick a world to play. Left thumb walks (push far to run), drag to look around, pinch to zoom. Play sideways.
+            Left thumb walks (push far to run), drag to look around, pinch to zoom. Play sideways.
           </p>
+          <button class="back">Back</button>
         </div>
 
         <div id="home-look" class="home-panel hidden">
@@ -345,6 +352,8 @@
               <a href="https://fonts.google.com/specimen/Fredoka" target="_blank" rel="noopener">Fredoka</a>, SIL Open
               Font License 1.1
             </dd>
+            <dt>Title art</dt>
+            <dd>Title and intro paintings and the logo were made with an AI image model, from the in-game nymph</dd>
             <dt>Engine</dt>
             <dd><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a>, MIT License</dd>
             <dt>Source</dt>
@@ -357,6 +366,20 @@
           <button class="back">Back</button>
         </div>
       </div>
+    </div>
+
+    <!-- The story, told once at the start of each new world. -->
+    <div id="intro" class="hidden">
+      <div class="intro-art" aria-hidden="true"><img src="/title/broken-moon.jpg" alt="" /></div>
+      <div class="intro-text">
+        <p>The moon broke, and the whole planet went grey.</p>
+        <p>
+          You are the last <span id="intro-kind">wood nymph</span>, with a pocketful of seeds and a pair of tweezers.
+        </p>
+        <p>When your satchel runs dry, head back to the glowing Seed Hollow, or any waystone you have raised.</p>
+        <button id="intro-begin">Begin</button>
+      </div>
+      <button id="intro-skip" class="link">Skip</button>
     </div>
 
     <div id="portrait">

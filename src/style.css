@@ -371,11 +371,6 @@ button.remove {
   text-align: center;
   width: min(560px, calc(100vw - 32px));
 }
-.start-inner h1 {
-  font-size: 48px;
-  margin: 0 0 8px;
-  color: var(--leaf);
-}
 .start-inner p {
   color: var(--ink-dim);
   line-height: 1.5;
@@ -383,10 +378,290 @@ button.remove {
 .start-inner .small {
   font-size: 13px;
 }
-#play {
-  font-size: 20px;
-  padding: 12px 28px;
-  margin: 8px 0;
+
+/* ---------- Title screen ---------- */
+#start {
+  background: #120c1c;
+  overflow: hidden;
+}
+.title-art,
+.intro-art {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.title-art img,
+.intro-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 40% 30%;
+  display: block;
+  animation: title-drift 40s ease-in-out infinite alternate;
+  transform-origin: 30% 70%;
+}
+@keyframes title-drift {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.06);
+  }
+}
+/* Shade the right side so the menu reads over the pale hills. */
+.title-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 42% 60% at 78% 68%, rgba(18, 10, 30, 0.55), transparent 75%),
+    linear-gradient(to bottom, transparent 70%, rgba(18, 10, 30, 0.35));
+  pointer-events: none;
+}
+/* Cards (worlds, settings...) dim the painting behind them. */
+#start:has(#home-card:not(.hidden)) .title-art::after {
+  background: rgba(18, 10, 30, 0.55);
+}
+.motes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.motes i {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f4ffb0;
+  box-shadow:
+    0 0 8px 3px rgba(214, 255, 120, 0.7),
+    0 0 18px 6px rgba(160, 230, 90, 0.3);
+  opacity: 0;
+  animation: mote var(--d, 9s) ease-in-out var(--delay, 0s) infinite;
+}
+@keyframes mote {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  20% {
+    opacity: 0.9;
+  }
+  80% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx, 20px), -120px);
+  }
+}
+#home-main {
+  position: absolute;
+  right: max(3vw, 16px, env(safe-area-inset-right));
+  bottom: 4vh;
+  top: 2vh;
+  width: min(44vw, 560px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1.2vh;
+  animation: title-in 1.2s ease-out both;
+}
+@keyframes title-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.title-logo {
+  margin: 0 0 1vh;
+  flex: 0 1 auto;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+}
+.title-logo img {
+  width: min(100%, 520px);
+  max-height: 32vh;
+  object-fit: contain;
+  filter: drop-shadow(0 6px 14px rgba(10, 6, 20, 0.6));
+}
+.title-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4vh;
+}
+.title-nav button {
+  position: relative;
+  isolation: isolate;
+  background: none;
+  border-radius: 999px;
+  padding: 0.5vh 34px;
+  font-size: clamp(17px, 3.6vh, 30px);
+  font-weight: 500;
+  color: #fff4dc;
+  text-shadow:
+    0 2px 4px rgba(10, 6, 20, 0.9),
+    0 0 14px rgba(10, 6, 20, 0.6);
+  transition:
+    color 0.15s,
+    transform 0.15s;
+}
+#title-start,
+#title-continue {
+  font-size: clamp(20px, 4.4vh, 38px);
+  font-weight: 600;
+}
+#title-continue[data-world]::after {
+  content: attr(data-world);
+  display: block;
+  font-size: 0.42em;
+  font-weight: 400;
+  color: var(--ink-dim);
+}
+.title-nav button::before {
+  /* the glowing brush-stroke behind the chosen item */
+  content: '';
+  position: absolute;
+  inset: 15% -4%;
+  border-radius: 50%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(190, 255, 140, 0.45),
+    rgba(150, 230, 100, 0.12) 55%,
+    transparent 72%
+  );
+  opacity: 0;
+  transform: scaleX(0.6);
+  transition:
+    opacity 0.18s,
+    transform 0.18s;
+  z-index: -1;
+}
+.title-nav button:hover,
+.title-nav button:focus-visible {
+  color: #e9ffc9;
+  transform: scale(1.05);
+  outline: none;
+}
+.title-nav button:hover::before,
+.title-nav button:focus-visible::before {
+  opacity: 1;
+  transform: scaleX(1);
+}
+.title-nav button:disabled {
+  background: none;
+  opacity: 0.5;
+}
+#home-main #cloud-line {
+  margin: 0.6vh 0 0;
+  max-width: 340px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(10, 6, 20, 0.9);
+}
+#home-card {
+  position: relative;
+  animation: card-in 0.25s ease-out both;
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+}
+
+/* ---------- Intro (the story, at the start of a new world) ---------- */
+#intro {
+  position: fixed;
+  inset: 0;
+  background: #05040c;
+  overflow: hidden;
+  cursor: pointer;
+}
+#intro.shown {
+  animation: intro-fade 1.2s ease-out both;
+}
+@keyframes intro-fade {
+  from {
+    opacity: 0;
+  }
+}
+.intro-art img {
+  object-position: 70% 15%;
+  animation: intro-push 30s ease-out both;
+  transform-origin: 65% 55%;
+}
+@keyframes intro-push {
+  from {
+    transform: scale(1.12);
+  }
+  to {
+    transform: scale(1);
+  }
+}
+.intro-art::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, rgba(5, 4, 12, 0.75), rgba(5, 4, 12, 0.35) 50%, transparent 70%);
+}
+.intro-text {
+  position: absolute;
+  left: max(7vw, 16px, env(safe-area-inset-left));
+  top: 50%;
+  transform: translateY(-50%);
+  width: min(46vw, 560px);
+}
+.intro-text p {
+  font-size: clamp(17px, 3.4vh, 28px);
+  line-height: 1.45;
+  margin: 0 0 2.4vh;
+  color: #f3ecff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.intro-text p:first-child {
+  font-family: 'Cinzel', Georgia, serif;
+  font-size: clamp(20px, 4.2vh, 36px);
+  line-height: 1.3;
+  color: #fff;
+}
+.intro-text > * {
+  opacity: 0;
+  transform: translateY(10px);
+  filter: blur(4px);
+  transition:
+    opacity 1.4s ease-out,
+    transform 1.4s ease-out,
+    filter 1.4s ease-out;
+}
+.intro-text > .in {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+#intro-kind {
+  color: var(--leaf);
+}
+#intro-begin {
+  font-size: clamp(18px, 3.4vh, 26px);
+  padding: 10px 40px;
+  border-radius: 999px;
+  margin-top: 1vh;
+  box-shadow: 0 0 24px rgba(155, 227, 122, 0.45);
+}
+#intro:has(#intro-begin.in) #intro-skip {
+  opacity: 0;
+  pointer-events: none;
+}
+#intro-skip {
+  transition: opacity 0.6s;
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: 16px;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .dim {
@@ -695,12 +970,6 @@ button.remove {
 }
 
 /* Home screen: settings and credits */
-.home-links {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 10px;
-}
 button.link,
 .home-panel .back {
   background: rgba(255, 255, 255, 0.08);

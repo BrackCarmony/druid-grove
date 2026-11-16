@@ -1203,10 +1203,16 @@ const startMusic = () => {
 addEventListener('pointerdown', startMusic);
 addEventListener('keydown', startMusic);
 
-function showHome(panel: 'main' | 'settings' | 'credits' | 'look' | 'cloud') {
+type HomePanel = 'main' | 'worlds' | 'settings' | 'credits' | 'look' | 'cloud';
+/** The title screen's menu, or one of its cards opened over the art. */
+function showHome(panel: HomePanel) {
   $('home-cloud').classList.toggle('hidden', panel !== 'cloud');
   if (panel === 'cloud') renderCloud();
   $('home-main').classList.toggle('hidden', panel !== 'main');
+  $('home-card').classList.toggle('hidden', panel === 'main');
+  $('home-worlds').classList.toggle('hidden', panel !== 'worlds');
+  if (panel === 'worlds') renderSlots();
+  if (panel === 'main') renderContinue();
   $('home-settings').classList.toggle('hidden', panel !== 'settings');
   $('home-credits').classList.toggle('hidden', panel !== 'credits');
   $('home-look').classList.toggle('hidden', panel !== 'look');
@@ -1218,6 +1224,41 @@ function showHome(panel: 'main' | 'settings' | 'credits' | 'look' | 'cloud') {
 }
 $('open-settings').onclick = () => showHome('settings');
 $('open-look').onclick = () => showHome('look');
+$('title-start').onclick = () => showHome('worlds');
+$('title-continue').onclick = () => {
+  const i = lastSlot();
+  if (slotInfo(i)) startGame(i);
+};
+// Pollen motes drifting up off the nymph's patch of grass in the title painting.
+for (let k = 0; k < 16; k++) {
+  const m = document.createElement('i');
+  const r = (a: number, b: number) => a + Math.random() * (b - a);
+  m.style.cssText =
+    `left:${r(8, 60)}%;top:${r(55, 92)}%;--d:${r(7, 13)}s;--delay:${r(-12, 0)}s;--dx:${r(-40, 40)}px;` +
+    `scale:${r(0.5, 1.1)}`;
+  document.querySelector('.motes')!.append(m);
+}
+/** "Continue" on the title goes straight back into the world played last, if there is one. */
+function renderContinue() {
+  const i = lastSlot();
+  const info = slotInfo(i);
+  const btn = $<HTMLButtonElement>('title-continue');
+  btn.classList.toggle('hidden', !info);
+  btn.disabled = cloud.state === 'syncing';
+  if (info) btn.dataset.world = `World ${i + 1}`;
+}
+// Arrow keys walk the title menu (Enter or Space picks, as buttons do).
+addEventListener('keydown', (e) => {
+  if (started || $('home-main').classList.contains('hidden')) return;
+  if (e.code !== 'ArrowDown' && e.code !== 'ArrowUp') return;
+  const items = [...document.querySelectorAll<HTMLButtonElement>('.title-nav button')].filter(
+    (b) => !b.classList.contains('hidden') && !b.disabled,
+  );
+  const at = items.indexOf(document.activeElement as HTMLButtonElement);
+  const next = at < 0 ? 0 : (at + (e.code === 'ArrowDown' ? 1 : items.length - 1)) % items.length;
+  items[next].focus();
+  e.preventDefault();
+});
 
 /** The home screen's intro names the character being played. */
 function renderIntro() {
@@ -1325,8 +1366,12 @@ function renderCloud() {
 }
 cloud.onChange = () => {
   renderCloud();
-  if (!started) renderSlots();
+  if (!started) {
+    renderSlots();
+    renderContinue();
+  }
 };
+renderContinue();
 $('cloud-create').onclick = () => cloud.create().catch(() => {});
 $('cloud-link').onclick = () =>
   cloud
@@ -1466,6 +1511,54 @@ function playEnding() {
 /** A brand-new player's first world waits here while they make their character. */
 let firstWorld: number | null = null;
 
+// ---------- the intro: the story, told at the start of each new world ----------
+/** The new world the intro is opening. */
+let introFor: number | null = null;
+let introTimers: number[] = [];
+const introLines = () => [...document.querySelectorAll<HTMLElement>('#intro .intro-text > *')];
+
+function showIntro(i: number) {
+  introFor = i;
+  renderIntro();
+  lookPreview.stop();
+  const intro = $('intro');
+  intro.classList.remove('hidden', 'shown');
+  void intro.offsetWidth; // restart the fade and the slow push-in
+  intro.classList.add('shown');
+  // One line at a time, then the Begin button.
+  const lines = introLines();
+  for (const el of lines) el.classList.remove('in');
+  introTimers.forEach(clearTimeout);
+  introTimers = lines.map((el, k) => window.setTimeout(() => el.classList.add('in'), 900 + k * 2200));
+}
+/** Show every line at once (a click or key while it's still telling). */
+function hurryIntro() {
+  introTimers.forEach(clearTimeout);
+  introTimers = [];
+  for (const el of introLines()) el.classList.add('in');
+  $('intro-begin').focus();
+}
+const beginIntro = () => introFor !== null && startGame(introFor);
+$('intro-begin').onclick = (e) => {
+  e.stopPropagation();
+  beginIntro();
+};
+$('intro-skip').onclick = (e) => {
+  e.stopPropagation();
+  beginIntro();
+};
+$('intro').addEventListener('click', () => {
+  if (!$('intro-begin').classList.contains('in')) hurryIntro();
+});
+addEventListener('keydown', (e) => {
+  if (introFor === null || started || $('intro').classList.contains('hidden')) return;
+  if (e.code === 'Escape') return beginIntro();
+  if (!$('intro-begin').classList.contains('in')) {
+    hurryIntro();
+    e.preventDefault(); // the same Enter shouldn't press Begin straight away
+  }
+});
+
 function startGame(i: number) {
   if (started) return;
   // The very first world (no worlds at all yet) starts with making your character; later
@@ -1477,6 +1570,10 @@ function startGame(i: number) {
     return;
   }
   firstWorld = null;
+  // A new world opens with the story; Begin (or Skip) comes back here to start it.
+  if (!slotInfo(i) && introFor !== i) return showIntro(i);
+  introFor = null;
+  $('intro').classList.add('hidden');
   setLastSlot(i);
   loadSlot(i);
   started = true;
@@ -1696,7 +1793,13 @@ let simTime = 0;
 const BOT_DT = 0.05;
 const BOT_BUDGET_MS = 28; // fast-forward steps per frame stop here, so it still draws
 
+let titleFrame = 0;
 function frame() {
+  // The title's painting covers the world: draw it only now and then (keeps it warmed up).
+  if (!started && !firstFrame && titleFrame++ % 20 !== 0) {
+    clock.getDelta();
+    return requestAnimationFrame(frame);
+  }
   perf.begin();
   const realDt = Math.min(clock.getDelta(), 0.05);
   if (bot?.fast && started && !ending.active) {
